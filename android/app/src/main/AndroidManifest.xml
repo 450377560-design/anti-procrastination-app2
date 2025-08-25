@@ -9,6 +9,11 @@
         android:label="Anti Procrastination App 2"
         android:icon="@mipmap/ic_launcher">
 
+        <!-- 关键：声明使用 Android embedding v2 -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
         <!-- 锁屏专注界面（AOD 风格） -->
         <activity
             android:name="com.wenxue.antiprocrastinationapp2.LockActivity"

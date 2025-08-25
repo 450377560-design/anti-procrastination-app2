@@ -13,18 +13,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
-
+      # 先安装 Flutter，准备好 flutter 命令
       - name: Install Flutter (stable)
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+
+      # 如果仓库里还没有完整脚手架，这一步会把缺的文件补齐（不会覆盖你已有文件）
+      - name: Bootstrap Flutter project files
+        run: flutter create .
+
+      # 现在已经有 *.gradle / gradle-wrapper.properties，启用 Gradle 缓存就不会报错了
+      - name: Set up Java 17 (with Gradle cache)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3

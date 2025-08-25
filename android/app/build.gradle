@@ -1,32 +1,29 @@
 plugins {
     id "com.android.application"
     id "kotlin-android"
-    // Flutter 的 Gradle 插件（新版模板）
     id "dev.flutter.flutter-gradle-plugin"
 }
 
 flutter {
-    // 指向 Flutter 工程根目录
     source = "../.."
 }
 
 android {
     namespace "com.wenxue.antiprocrastinationapp2"
 
-    // 你也可以不写，使用 Flutter 模板的默认 compileSdk，
-    // 这里显式指定一个常用值
-    compileSdkVersion 34
+    // 升级到 36，满足 sqflite_android 要求
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.wenxue.antiprocrastinationapp2"
-        minSdkVersion 23
-        targetSdkVersion 34
+        minSdk 23
+        targetSdk 36
 
         versionCode 1
         versionName "1.0.0"
     }
 
-    // 为兼容 flutter_local_notifications 要求，开启 desugaring + JDK 17
+    // desugaring + JDK 17
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -38,11 +35,9 @@ android {
 
     buildTypes {
         debug {
-            // 默认即可；保留调试符号，便于排错
             minifyEnabled false
         }
         release {
-            // 你目前只打 Debug 包，这里保持最简；以后发版再配置签名与压缩
             minifyEnabled false
             shrinkResources false
         }
@@ -50,7 +45,9 @@ android {
 }
 
 dependencies {
-    // 开启 desugaring 必需
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.2'
-    // 其他依赖由 Flutter 插件自动注入，这里无需手动添加
+    // AppCompat（LockActivity 继承自 AppCompatActivity 需要）
+    implementation "androidx.appcompat:appcompat:1.7.0"
+
+    // desugaring 所需
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.2"
 }

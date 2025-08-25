@@ -1,0 +1,57 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.wenxue.antiprocrastinationapp2">
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
+        android:label="Anti Procrastination App 2"
+        android:icon="@mipmap/ic_launcher">
+
+        <!-- 锁屏专注界面（AOD 风格） -->
+        <activity
+            android:name="com.wenxue.antiprocrastinationapp2.LockActivity"
+            android:exported="false"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="com.wenxue.antiprocrastinationapp2.LOCK_SCREEN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- 前台服务 -->
+        <service
+            android:name="com.wenxue.antiprocrastinationapp2.FocusService"
+            android:exported="false" />
+
+        <!-- 夜间提醒闹钟接收器 -->
+        <receiver
+            android:name="com.wenxue.antiprocrastinationapp2.PlannerReceiver"
+            android:exported="false" />
+
+        <!-- 开机恢复闹钟 -->
+        <receiver
+            android:name="com.wenxue.antiprocrastinationapp2.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 启动入口（MainActivity 必须写 FQCN） -->
+        <activity
+            android:name="com.wenxue.antiprocrastinationapp2.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+</manifest>

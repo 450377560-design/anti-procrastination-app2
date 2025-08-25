@@ -2,8 +2,8 @@ name: build-debug-apk
 
 on:
   push:
-    branches: [ main ]      # 推到 main 自动出包
-  workflow_dispatch:         # 也可以手动触发
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   android:
@@ -23,7 +23,7 @@ jobs:
       - name: Install Flutter (stable)
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: stable
           cache: true
 
       - name: Set up Android SDK

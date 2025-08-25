@@ -1,20 +1,23 @@
-name: anti_procrastinate
+name: anti_procrastination_app2
+description: Anti Procrastination App 2 (Flutter + Android 原生)
 publish_to: 'none'
-environment:
-sdk: '>=3.0.0 <4.0.0'
-dependencies:
-flutter:
-sdk: flutter
-sqflite: ^2.3.0
-path: ^1.9.0
-intl: ^0.19.0
-collection: ^1.18.0
-flutter_local_notifications: ^17.2.1 # 可选，用于 App 内次级提醒
-provider: ^6.1.2 # 或 Riverpod/Bloc，MVP 用 Provider 即可
 
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  sqflite: ^2.3.0
+  path: ^1.9.0
+  intl: ^0.19.0
+  collection: ^1.18.0
+  flutter_local_notifications: ^17.2.1
+  provider: ^6.1.2
 
 dev_dependencies:
-flutter_test:
-sdk: flutter
+  flutter_test:
+    sdk: flutter
+
 flutter:
-uses-material-design: true
+  uses-material-design: true

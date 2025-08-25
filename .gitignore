@@ -1,0 +1,18 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub-cache/
+build/
+**/GeneratedPluginRegistrant.java
+**/GeneratedPluginRegistrant.swift
+
+# Android / Gradle
+**/local.properties
+**/.gradle/
+**/captures/
+**/outputs/
+*.keystore
+*.jks
+
+# iOS (若存在)
+**/Pods/

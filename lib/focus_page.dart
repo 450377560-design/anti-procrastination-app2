@@ -7,7 +7,6 @@ import 'db/dao_focus.dart';
 class FocusPage extends StatefulWidget {
   final int minutes;
   const FocusPage({super.key, required this.minutes});
-
   @override
   State<FocusPage> createState() => _FocusPageState();
 }
@@ -16,9 +15,9 @@ class _FocusPageState extends State<FocusPage> {
   late int _remaining;
   Timer? _timer;
   bool _paused = false;
+  bool _ended = false; // 防重复
   int? _sessionId;
 
-  // 创意：提示音/震动（会在开始/暂停/继续/完成/停止时触发）
   bool _soundOn = true;
   bool _vibrateOn = true;
 
@@ -35,12 +34,15 @@ class _FocusPageState extends State<FocusPage> {
   Future<void> _startSession() async {
     _sessionId = await FocusDao.startSession(widget.minutes);
     _timer = Timer.periodic(const Duration(seconds: 1), (t) async {
-      if (_paused) return;
+      if (_paused || _ended) return;
       if (!mounted) return;
       setState(() => _remaining--);
-      if (_remaining <= 0) {
+      if (_remaining <= 0 && !_ended) {
+        _ended = true;
+        _timer?.cancel(); // 先停表
         await FocusDao.finishSession(_sessionId!, completed: true);
-        await _celebrate();
+        if (!mounted) return;
+        await _celebrate(); // 只弹一次
         if (!mounted) return;
         Navigator.pop(context);
       }
@@ -56,12 +58,18 @@ class _FocusPageState extends State<FocusPage> {
   }
 
   Future<void> _stop() async {
+    if (_ended) {
+      if (mounted) Navigator.pop(context);
+      return;
+    }
+    _ended = true;
+    _timer?.cancel();
     if (_sessionId != null) {
       await FocusDao.finishSession(_sessionId!, completed: false);
     }
-    await _ping(); // 停止提示
+    await _ping();
     if (!mounted) return;
-    Navigator.pop(context); // 返回上一页，不退出应用
+    Navigator.pop(context);
   }
 
   Future<void> _ping() async {
@@ -75,12 +83,16 @@ class _FocusPageState extends State<FocusPage> {
 
   Future<void> _celebrate() async {
     await _ping();
+    // 用 builder 的内层 context 关闭，避免某些机型对 rootNavigator 的兼容问题
     await showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      barrierDismissible: true,
+      builder: (c) => AlertDialog(
         title: const Text('🎉 太棒了！'),
         content: const Text('本次专注完成，奖励 +10 积分'),
-        actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('确定'))],
+        actions: [
+          FilledButton(onPressed: () => Navigator.of(c).pop(), child: const Text('确定')),
+        ],
       ),
     );
   }
@@ -101,7 +113,7 @@ class _FocusPageState extends State<FocusPage> {
                   FilledButton(
                     onPressed: () {
                       setState(() => _paused = !_paused);
-                      _ping(); // 暂停/继续提示
+                      _ping();
                     },
                     child: Text(_paused ? '继续' : '暂停'),
                   ),
@@ -110,8 +122,6 @@ class _FocusPageState extends State<FocusPage> {
                 ]),
               ]),
             ),
-
-            // 右上角：提示音/震动开关
             Positioned(
               right: 12, top: 8,
               child: Row(children: [

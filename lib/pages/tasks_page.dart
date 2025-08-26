@@ -17,6 +17,24 @@ class _TasksPageState extends State<TasksPage> {
   String _sort = 'priority';
   final Set<int> _selected = {}; // 批量选择
 
+  String _fmt(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
+
+  Future<void> _pickDate() async {
+    final now = DateTime.tryParse(_date) ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: DateTime(now.year - 3),
+      lastDate: DateTime(now.year + 3),
+    );
+    if (picked != null) setState(() => _date = _fmt(picked));
+  }
+
+  void _shiftDay(int delta) {
+    final d = DateTime.tryParse(_date) ?? DateTime.now();
+    setState(() => _date = _fmt(d.add(Duration(days: delta))));
+  }
+
   Future<void> _editTask([Task? t]) async {
     final ctrlTitle = TextEditingController(text: t?.title ?? '');
     final ctrlDesc = TextEditingController(text: t?.description ?? '');
@@ -192,11 +210,17 @@ class _TasksPageState extends State<TasksPage> {
       builder: (context, snap) {
         final list = snap.data ?? <Task>[];
         final groups = groupBy(list, (Task t) => (t.project?.isNotEmpty == true) ? t.project! : '未分组');
+        final titleDate = DateTime.tryParse(_date) ?? DateTime.now();
+        final titleStr = DateFormat('yyyy-MM-dd (EEE)', 'zh_CN').format(titleDate);
+
         return Scaffold(
           appBar: AppBar(
-            title: Text(_selected.isEmpty ? '任务清单' : '已选择 ${_selected.length} 项'),
+            title: Text(_selected.isEmpty ? '任务清单 · $titleStr' : '已选择 ${_selected.length} 项'),
             actions: _selected.isEmpty
                 ? [
+                    IconButton(onPressed: () => _shiftDay(-1), icon: const Icon(Icons.chevron_left)),
+                    IconButton(onPressed: _pickDate, icon: const Icon(Icons.event)),
+                    IconButton(onPressed: () => _shiftDay(1), icon: const Icon(Icons.chevron_right)),
                     PopupMenuButton<String>(
                       onSelected: (v) => setState(() => _sort = v),
                       itemBuilder: (_) => const [
@@ -239,8 +263,6 @@ class _TasksPageState extends State<TasksPage> {
   Widget _buildTile(Task t) {
     final sel = _selected.contains(t.id);
     final labels = (t.labels ?? '').split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-
-    // 优先级颜色
     final priColor = [null, Colors.red, Colors.orange, Colors.blue][t.priority];
 
     return InkWell(

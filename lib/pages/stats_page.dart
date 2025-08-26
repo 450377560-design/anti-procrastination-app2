@@ -1,4 +1,3 @@
-import 'package:collection/collection.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -53,7 +52,7 @@ class _StatsPageState extends State<StatsPage> {
     final done = tasks.where((t) => t.done).length;
     final rate = tasks.isEmpty ? 0 : ((done * 100) / tasks.length).round();
 
-    // 近7天任务完成率（用于折线/柱状，简单展示）
+    // 近7天任务完成率
     final rate7 = await TaskDao.completionByDay(7); // yyyy-MM-dd → %
     final rateSeries = <String, int>{};
     for (int i = 0; i < 7; i++) {
@@ -112,7 +111,6 @@ class _StatsPageState extends State<StatsPage> {
         child: Text(s, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
       );
 
-  // 柱状图：近7天分钟
   Widget _barChart(Map<String, int> byDay) {
     final keys = byDay.keys.toList();
     final maxv = (byDay.values.isEmpty ? 10 : byDay.values.reduce((a, b) => a > b ? a : b)).toDouble();
@@ -144,7 +142,6 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  // 饼图：打断原因
   Widget _pieChart(Map<String, int> inter) {
     if (inter.isEmpty) {
       return const Padding(
@@ -168,14 +165,11 @@ class _StatsPageState extends State<StatsPage> {
                 radius: 60,
               )
           ],
-          // Legend 自己画：
-          // ignore: invalid_use_of_visible_for_testing_member
         ),
       ),
     );
   }
 
-  // 环形图：今日完成率
   Widget _donut(int rate) {
     return SizedBox(
       height: 180,
@@ -196,7 +190,6 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  // 折线柱组合（这里用折线）: 近7天任务完成率
   Widget _lineBars(Map<String, int> series) {
     final keys = series.keys.toList();
     final spots = [

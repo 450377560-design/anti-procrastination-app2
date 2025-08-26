@@ -32,4 +32,27 @@ class FocusDao {
       'reason': reason,
     });
   }
+
+  // 统计：时间段内的会话
+  static Future<List<Map<String, dynamic>>> loadSessionsBetween(int fromMs, int toMs) async {
+    final db = await AppDB.db;
+    return db.query(
+      'focus_sessions',
+      where: 'start_ts>=? AND start_ts<? AND end_ts IS NOT NULL',
+      whereArgs: [fromMs, toMs],
+      orderBy: 'start_ts DESC',
+    );
+  }
+
+  // 统计：时间段内的打断原因聚合
+  static Future<List<Map<String, dynamic>>> loadInterruptionsBetween(int fromMs, int toMs) async {
+    final db = await AppDB.db;
+    return db.rawQuery('''
+      SELECT reason, COUNT(*) cnt
+      FROM interruptions
+      WHERE ts>=? AND ts<?
+      GROUP BY reason
+      ORDER BY cnt DESC
+    ''', [fromMs, toMs]);
+  }
 }

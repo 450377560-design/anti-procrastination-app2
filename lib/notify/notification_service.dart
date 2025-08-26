@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_native_timezone/flutter_native_timezone.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import '../models/task.dart';
@@ -15,7 +15,7 @@ class NotificationService {
     // 时区
     tz.initializeTimeZones();
     try {
-      final name = await FlutterNativeTimezone.getLocalTimezone();
+      final name = await FlutterTimezone.getLocalTimezone();
       tz.setLocalLocation(tz.getLocation(name));
     } catch (_) {
       tz.setLocalLocation(tz.getLocation('Asia/Shanghai'));
@@ -48,7 +48,6 @@ class NotificationService {
     return const NotificationDetails(android: android);
   }
 
-  /// 为带有 [date] + [startTime] 的任务安排一次性提醒
   static Future<void> scheduleTaskReminder(Task t) async {
     if (!_inited) await init();
     if (t.id == null || t.date.isEmpty || t.startTime == null || t.done) return;
@@ -65,7 +64,7 @@ class NotificationService {
 
     final when = tz.TZDateTime.from(fire, tz.local);
     await _plugin.zonedSchedule(
-      t.id!, // 用任务 id 作为通知 id，便于取消
+      t.id!,
       '开始做：${t.title}',
       t.endTime == null ? '现在是你计划的开始时间' : '计划时段：${t.startTime}–${t.endTime}',
       when,

@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'build_info.dart';
 import 'focus_page.dart';
 import 'pages/tasks_page.dart';
 import 'pages/stats_page.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 初始化中文日期/星期等本地化数据，修复 LocaleDataException
+  await initializeDateFormatting('zh_CN', null);
   runApp(const MyApp());
 }
 
@@ -14,9 +18,18 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false, // 去掉右上角 DEBUG
+      debugShowCheckedModeBanner: false,
       title: 'Anti Procrastination App 2',
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.blue),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('zh', 'CN'),
+        Locale('en', 'US'),
+      ],
       home: const Root(),
     );
   }
@@ -30,14 +43,9 @@ class Root extends StatefulWidget {
 
 class _RootState extends State<Root> {
   int _tab = 0;
-
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      const FocusHome(),
-      const TasksPage(),
-      const StatsPage(),
-    ];
+    final pages = [const FocusHome(), const TasksPage(), const StatsPage()];
     return Scaffold(
       body: pages[_tab],
       bottomNavigationBar: NavigationBar(
@@ -57,9 +65,7 @@ class FocusHome extends StatelessWidget {
   const FocusHome({super.key});
 
   Future<void> _start(BuildContext context, int minutes) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => FocusPage(minutes: minutes)),
-    );
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => FocusPage(minutes: minutes)));
   }
 
   Future<void> _startCustom(BuildContext context) async {
@@ -74,8 +80,8 @@ class FocusHome extends StatelessWidget {
           decoration: const InputDecoration(suffixText: '分钟', hintText: '5–180'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('开始')),
+          TextButton(onPressed: () => Navigator.of(c).pop(false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.of(c).pop(true), child: const Text('开始')),
         ],
       ),
     );

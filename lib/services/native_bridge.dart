@@ -4,6 +4,11 @@ import 'package:flutter/services.dart';
 class NativeBridge {
   static const MethodChannel _ch = MethodChannel('focus_bridge');
 
+  static Future<bool> requestNotificationPermission() async {
+    final ok = await _ch.invokeMethod('requestNotificationPermission');
+    return ok == true;
+  }
+
   static Future<bool> startFocus({required int minutes, required bool lock}) async {
     final ok = await _ch.invokeMethod('startFocus', {'minutes': minutes, 'lock': lock});
     return ok == true;
@@ -29,7 +34,7 @@ class NativeBridge {
   static Stream<void> get onInterruption => _onInterruption.stream;
 
   static final _onTick = StreamController<int>.broadcast();
-  static Stream<int> get onTick => _onTick.stream; // 秒
+  static Stream<int> get onTick => _onTick.stream;
 
   static final _onFinish = StreamController<void>.broadcast();
   static Stream<void> get onFinish => _onFinish.stream;

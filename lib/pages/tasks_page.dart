@@ -5,6 +5,8 @@ import '../db/dao_task.dart';
 import '../db/dao_template.dart';
 import '../models/task.dart';
 import '../utils/color_hash.dart';
+import '../focus_page.dart';
+import '../notify/notification_service.dart';
 
 class TasksPage extends StatefulWidget {
   const TasksPage({super.key});
@@ -16,6 +18,13 @@ class _TasksPageState extends State<TasksPage> {
   String _date = DateFormat('yyyy-MM-dd').format(DateTime.now());
   String _sort = 'priority';
   final Set<int> _selected = {}; // 批量选择
+
+  @override
+  void initState() {
+    super.initState();
+    // 初始化通知（只需一次）
+    NotificationService.init();
+  }
 
   String _fmt(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
 
@@ -42,6 +51,13 @@ class _TasksPageState extends State<TasksPage> {
     setState(() {});
   }
 
+  Future<void> _startTaskFocus(Task t) async {
+    final minutes = t.expectedMinutes ?? 25;
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => FocusPage(minutes: minutes, task: t)));
+    if (!mounted) return;
+    setState(() {}); // 回来后刷新统计/列表状态
+  }
+
   Future<void> _editTask([Task? t]) async {
     final ctrlTitle = TextEditingController(text: t?.title ?? '');
     final ctrlDesc = TextEditingController(text: t?.description ?? '');
@@ -50,6 +66,7 @@ class _TasksPageState extends State<TasksPage> {
     final ctrlExp = TextEditingController(text: (t?.expectedMinutes ?? 25).toString());
     final ctrlLabels = TextEditingController(text: t?.labels ?? '');
     final ctrlProject = TextEditingController(text: t?.project ?? '');
+    final ctrlEstPomos = TextEditingController(text: (t?.estimatePomos ?? '').toString());
     int priority = t?.priority ?? 2;
 
     Future<void> applyTemplate() async {
@@ -119,6 +136,8 @@ class _TasksPageState extends State<TasksPage> {
             ]),
             TextField(controller: ctrlLabels, decoration: const InputDecoration(labelText: '标签(逗号分隔)')),
             const SizedBox(height: 8),
+            TextField(controller: ctrlEstPomos, decoration: const InputDecoration(labelText: '预计番茄数(可选)'), keyboardType: TextInputType.number),
+            const SizedBox(height: 8),
             Row(children: [
               OutlinedButton(onPressed: applyTemplate, child: const Text('应用模板')),
               const SizedBox(width: 8),
@@ -141,12 +160,13 @@ class _TasksPageState extends State<TasksPage> {
                       title: ctrlTitle.text,
                       description: ctrlDesc.text,
                       priority: priority,
-                      startTime: ctrlStart.text,
-                      endTime: ctrlEnd.text,
+                      startTime: ctrlStart.text.isEmpty ? null : ctrlStart.text,
+                      endTime: ctrlEnd.text.isEmpty ? null : ctrlEnd.text,
                       expectedMinutes: int.tryParse(ctrlExp.text),
                       labels: ctrlLabels.text,
                       project: ctrlProject.text,
                       date: _date,
+                      estimatePomos: int.tryParse(ctrlEstPomos.text),
                     );
                     await TemplateDao.saveTemplate(nameCtrl.text, tmpTask);
                     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存为模板')));
@@ -177,11 +197,20 @@ class _TasksPageState extends State<TasksPage> {
         project: ctrlProject.text.isEmpty ? null : ctrlProject.text,
         date: _date,
         done: t?.done ?? false,
+        estimatePomos: int.tryParse(ctrlEstPomos.text),
+        actualPomos: t?.actualPomos ?? 0,
       );
+
       if (t == null) {
-        await TaskDao.insert(task);
+        final id = await TaskDao.insert(task);
+        task.id = id;
+        await NotificationService.scheduleTaskReminder(task);
       } else {
         await TaskDao.update(task);
+        if (task.id != null) {
+          await NotificationService.cancelTaskReminder(task.id!);
+          await NotificationService.scheduleTaskReminder(task);
+        }
       }
       if (mounted) setState(() {});
     }
@@ -189,6 +218,12 @@ class _TasksPageState extends State<TasksPage> {
 
   Future<void> _batchSetDone(bool done) async {
     await TaskDao.setDoneMany(_selected.toList(), done);
+    // 完成则取消提醒
+    if (done) {
+      for (final id in _selected) {
+        await NotificationService.cancelTaskReminder(id);
+      }
+    }
     setState(() => _selected.clear());
   }
 
@@ -206,6 +241,9 @@ class _TasksPageState extends State<TasksPage> {
     );
     if (ok == true) {
       await TaskDao.deleteMany(_selected.toList());
+      for (final id in _selected) {
+        await NotificationService.cancelTaskReminder(id);
+      }
       setState(() => _selected.clear());
     }
   }
@@ -294,11 +332,21 @@ class _TasksPageState extends State<TasksPage> {
             onChanged: (_) async {
               await TaskDao.toggleDone(t);
               setState(() => t.done = !t.done);
+              if (t.id != null) {
+                if (t.done) {
+                  await NotificationService.cancelTaskReminder(t.id!);
+                } else {
+                  await NotificationService.scheduleTaskReminder(t);
+                }
+              }
             },
           ),
           title: Row(
             children: [
-              Text(t.title, style: TextStyle(decoration: t.done ? TextDecoration.lineThrough : null)),
+              Expanded(
+                child: Text(t.title, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(decoration: t.done ? TextDecoration.lineThrough : null)),
+              ),
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -325,10 +373,16 @@ class _TasksPageState extends State<TasksPage> {
                         label: Text('#$e', style: const TextStyle(color: Colors.white)),
                         backgroundColor: colorFromString(e),
                       )),
+                if (t.actualPomos > 0)
+                  Chip(label: Text('已完成番茄：${t.actualPomos}')),
               ],
             ),
           ),
-          trailing: const Icon(Icons.chevron_right),
+          trailing: IconButton(
+            icon: const Icon(Icons.play_arrow),
+            tooltip: '现在去完成任务',
+            onPressed: () => _startTaskFocus(t),
+          ),
         ),
       ),
     );

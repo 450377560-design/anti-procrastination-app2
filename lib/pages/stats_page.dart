@@ -22,6 +22,7 @@ class _StatsPageState extends State<StatsPage> {
 
   Future<Map<String, dynamic>> _load() async {
     final now = DateTime.now();
+
     // 近7天专注分钟
     final startWeek = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
     final startMs = startWeek.millisecondsSinceEpoch;
@@ -68,7 +69,7 @@ class _StatsPageState extends State<StatsPage> {
     final endDate = DateFormat('yyyy-MM-dd').format(last);
     final calendar = await TaskDao.countsByDateRange(startDate, endDate);
 
-    // 创意：连续专注天数 + 积分（每完成一次 +10）
+    // 连续专注天数 + 积分
     final streak = await FocusDao.streakDays();
     final points = await FocusDao.pointsTotal();
 
@@ -77,7 +78,7 @@ class _StatsPageState extends State<StatsPage> {
       'inter': interMap,
       'rateToday': rateToday,
       'rateSeries': rateSeries,
-      'calendar': calendar, // yyyy-MM-dd -> {total, done}
+      'calendar': calendar,
       'streak': streak,
       'points': points,
     };
@@ -153,7 +154,7 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  // 简易日历：一~日 7 列，显示每日 完成/总数
+  // 简易日历网格：一~日 7 列，每天显示 done/total，避免溢出
   Widget _taskCalendar(Map<String, Map<String, int>> map) {
     final first = _month;
     final lastDay = DateTime(_month.year, _month.month + 1, 0).day;
@@ -211,12 +212,11 @@ class _StatsPageState extends State<StatsPage> {
         crossAxisCount: 7,
         mainAxisSpacing: 2,
         crossAxisSpacing: 2,
-        childAspectRatio: 0.75, // ← 每格比宽更高，避免竖向溢出
+        childAspectRatio: 0.75, // 每格更高，避免文字溢出
       ),
       children: cells,
     );
   }
-
 
   Widget _sectionTitle(String s) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
@@ -240,7 +240,7 @@ class _StatsPageState extends State<StatsPage> {
             bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, meta) {
               final i = v.toInt();
               if (i < 0 || i >= keys.length) return const SizedBox.shrink();
-              return Padding(padding: const EdgeInsets.only(top: 4), child: Text(keys[i], style: const TextStyle(fontSize: 11)));
+              return Padding(padding: const EdgeInsets.only(top: 4), child: Text(keys[i], style: const TextStyle(fontSize: 10)));
             })),
           ),
           barGroups: [
@@ -305,7 +305,7 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  // 折线图：近 7 天任务完成率
+  // 折线图：近 7 天任务完成率（稀疏显示 0/3/6 三个刻度）
   Widget _lineBars(Map<String, int> series) {
     final keys = series.keys.toList();
     final spots = [
@@ -323,7 +323,6 @@ class _StatsPageState extends State<StatsPage> {
             rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
             bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, meta) {
               final i = v.toInt();
-              // 只显示 0、3、6 三个位置，避免拥挤
               if (i < 0 || i >= keys.length || !(i == 0 || i == 3 || i == 6)) return const SizedBox.shrink();
               return Padding(
                 padding: const EdgeInsets.only(top: 4),
@@ -340,4 +339,4 @@ class _StatsPageState extends State<StatsPage> {
       ),
     );
   }
-  
+}

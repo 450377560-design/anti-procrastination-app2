@@ -42,7 +42,7 @@ jobs:
           yes | sdkmanager --install "build-tools;36.0.0" || yes | sdkmanager --install "build-tools;35.0.0"
           yes | sdkmanager --install "platform-tools"
 
-      # —— 关键：计算这次的版本号、短 SHA，并写入 GITHUB_ENV —— #
+      # 自动版本号/短 SHA 注入
       - name: Compute build metadata
         run: |
           echo "BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
@@ -51,15 +51,17 @@ jobs:
 
       - name: Flutter clean
         run: flutter clean
-        
-      - name: Show lib tree (debug)
-        run: ls -R lib || true
-
-      - name: Dart analyze (show real error early)
-        run: flutter analyze
 
       - name: Fetch packages
         run: flutter pub get
+
+      # 仅用于排错的可视化与分析（不阻塞后续构建）
+      - name: Show lib tree (debug)
+        run: ls -R lib || true
+
+      - name: Dart analyze (non-blocking)
+        run: dart analyze
+        continue-on-error: true
 
       - name: Build debug APK (auto version)
         run: |

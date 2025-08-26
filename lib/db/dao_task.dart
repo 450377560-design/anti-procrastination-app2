@@ -48,6 +48,11 @@ class TaskDao {
     return rows.map(Task.fromMap).toList();
   }
 
+  static Future<void> toggleDone(Task t) async {
+    final db = await AppDB.db;
+    await db.update('tasks', {'done': t.done ? 0 : 1}, where: 'id=?', whereArgs: [t.id]);
+  }
+
   /// 最近 N 天（含今天）每天的完成率（0~100）
   static Future<Map<String, int>> completionByDay(int days) async {
     final db = await AppDB.db;
@@ -55,7 +60,8 @@ class TaskDao {
     final now = DateTime.now();
     for (int i = days - 1; i >= 0; i--) {
       final d = DateTime(now.year, now.month, now.day).subtract(Duration(days: i));
-      final dateStr = "${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}";
+      final dateStr =
+          "${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}";
       final rows = await db.query('tasks', where: 'date=?', whereArgs: [dateStr]);
       if (rows.isEmpty) {
         res[dateStr] = 0;

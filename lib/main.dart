@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'build_info.dart';
-import 'db/dao_focus.dart';
 import 'focus_page.dart';
 import 'pages/tasks_page.dart';
 import 'pages/stats_page.dart';

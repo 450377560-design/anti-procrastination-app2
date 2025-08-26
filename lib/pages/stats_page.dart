@@ -68,8 +68,9 @@ class _StatsPageState extends State<StatsPage> {
     final endDate = DateFormat('yyyy-MM-dd').format(last);
     final calendar = await TaskDao.countsByDateRange(startDate, endDate);
 
-    // 连续专注天数（创意元素）
+    // 创意：连续专注天数 + 积分（每完成一次 +10）
     final streak = await FocusDao.streakDays();
+    final points = await FocusDao.pointsTotal();
 
     return {
       'byDay': byDay,
@@ -78,6 +79,7 @@ class _StatsPageState extends State<StatsPage> {
       'rateSeries': rateSeries,
       'calendar': calendar, // yyyy-MM-dd -> {total, done}
       'streak': streak,
+      'points': points,
     };
   }
 
@@ -106,7 +108,7 @@ class _StatsPageState extends State<StatsPage> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    _streakCard(m!['streak'] as int),
+                    _streakCard(m!['streak'] as int, m['points'] as int),
                     const SizedBox(height: 12),
                     _sectionTitle('近 7 天专注时长（分钟）'),
                     _barChart(m['byDay'] as Map<String, int>),
@@ -129,12 +131,12 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  Widget _streakCard(int streak) {
+  Widget _streakCard(int streak, int points) {
     return Card(
       child: ListTile(
         leading: const Icon(Icons.local_fire_department),
         title: Text('连续专注天数：$streak 天'),
-        subtitle: const Text('完成一次专注 +10 积分，坚持越久越稳！'),
+        subtitle: Text('已获积分：$points（完成一次 +10）'),
       ),
     );
   }
@@ -151,18 +153,16 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  // 简易日历：一~日 7 列，显示每日  完成/总数
+  // 简易日历：一~日 7 列，显示每日 完成/总数
   Widget _taskCalendar(Map<String, Map<String, int>> map) {
     final first = _month;
     final lastDay = DateTime(_month.year, _month.month + 1, 0).day;
-    final firstWeekday = (first.weekday + 6) % 7; // 转成 0=周一 … 6=周日
+    final firstWeekday = (first.weekday + 6) % 7; // 0=周一…6=周日
     final cells = <Widget>[];
 
-    // 星期标题行
     const wds = ['一', '二', '三', '四', '五', '六', '日'];
     cells.addAll(wds.map((w) => Center(child: Text(w, style: const TextStyle(fontWeight: FontWeight.bold)))));
 
-    // 空白占位
     for (int i = 0; i < firstWeekday; i++) {
       cells.add(const SizedBox.shrink());
     }
@@ -202,7 +202,6 @@ class _StatsPageState extends State<StatsPage> {
       ));
     }
 
-    // 补齐网格长度：7列×(1标题+最多6周)=7×7=49
     while (cells.length < 49) cells.add(const SizedBox.shrink());
 
     return GridView.count(

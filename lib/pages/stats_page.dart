@@ -158,8 +158,8 @@ class _StatsPageState extends State<StatsPage> {
     final first = _month;
     final lastDay = DateTime(_month.year, _month.month + 1, 0).day;
     final firstWeekday = (first.weekday + 6) % 7; // 0=周一…6=周日
-    final cells = <Widget>[];
 
+    final cells = <Widget>[];
     const wds = ['一', '二', '三', '四', '五', '六', '日'];
     cells.addAll(wds.map((w) => Center(child: Text(w, style: const TextStyle(fontWeight: FontWeight.bold)))));
 
@@ -188,15 +188,15 @@ class _StatsPageState extends State<StatsPage> {
               : Border.all(color: Colors.grey.shade300);
 
       cells.add(Container(
-        margin: const EdgeInsets.all(4),
+        margin: const EdgeInsets.all(3),
         decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8), border: border),
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('$d', style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text('$done/$total', style: TextStyle(fontSize: 12, color: hasAny ? null : Colors.grey)),
+            Text('$d', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 2),
+            Text('$done/$total', style: TextStyle(fontSize: 10, color: hasAny ? null : Colors.grey)),
           ],
         ),
       ));
@@ -204,13 +204,19 @@ class _StatsPageState extends State<StatsPage> {
 
     while (cells.length < 49) cells.add(const SizedBox.shrink());
 
-    return GridView.count(
-      crossAxisCount: 7,
+    return GridView(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 7,
+        mainAxisSpacing: 2,
+        crossAxisSpacing: 2,
+        childAspectRatio: 0.75, // ← 每格比宽更高，避免竖向溢出
+      ),
       children: cells,
     );
   }
+
 
   Widget _sectionTitle(String s) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
@@ -317,8 +323,12 @@ class _StatsPageState extends State<StatsPage> {
             rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
             bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, meta) {
               final i = v.toInt();
-              if (i < 0 || i >= keys.length) return const SizedBox.shrink();
-              return Padding(padding: const EdgeInsets.only(top: 4), child: Text(keys[i], style: const TextStyle(fontSize: 11)));
+              // 只显示 0、3、6 三个位置，避免拥挤
+              if (i < 0 || i >= keys.length || !(i == 0 || i == 3 || i == 6)) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(keys[i], style: const TextStyle(fontSize: 10)),
+              );
             })),
           ),
           gridData: const FlGridData(show: false),
@@ -330,4 +340,4 @@ class _StatsPageState extends State<StatsPage> {
       ),
     );
   }
-}
+  

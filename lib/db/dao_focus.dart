@@ -1,12 +1,14 @@
 import 'app_db.dart';
 
 class FocusDao {
-  static Future<int> startSession(int plannedMinutes) async {
+  static Future<int> startSession(int plannedMinutes, {int? taskId, String? goalText}) async {
     final db = await AppDB.db;
     return await db.insert('focus_sessions', {
       'start_ts': DateTime.now().millisecondsSinceEpoch,
       'planned_minutes': plannedMinutes,
       'completed': 0,
+      'task_id': taskId,
+      'goal_text': goalText,
     });
   }
 
@@ -21,6 +23,13 @@ class FocusDao {
       where: 'id=?',
       whereArgs: [id],
     );
+    if (completed) {
+      final row = await db.query('focus_sessions', columns: ['task_id'], where: 'id=?', whereArgs: [id], limit: 1);
+      final taskId = (row.isNotEmpty ? row.first['task_id'] as int? : null);
+      if (taskId != null) {
+        await db.rawUpdate('UPDATE tasks SET actual_pomos = COALESCE(actual_pomos,0) + 1 WHERE id=?', [taskId]);
+      }
+    }
   }
 
   static Future<void> addInterruption(int sessionId, String reason) async {
@@ -53,7 +62,6 @@ class FocusDao {
     ''', [fromMs, toMs]);
   }
 
-  /// 连续专注天数（从今天往前，直到遇到没有完成会话的那天）
   static Future<int> streakDays() async {
     final db = await AppDB.db;
     final from = DateTime.now().subtract(const Duration(days: 180)).millisecondsSinceEpoch;
@@ -86,7 +94,6 @@ class FocusDao {
     return streak;
   }
 
-  /// 总积分（每个完成会话 +10）
   static Future<int> pointsTotal() async {
     final db = await AppDB.db;
     final rows = await db.rawQuery('SELECT COUNT(*) AS cnt FROM focus_sessions WHERE completed=1');

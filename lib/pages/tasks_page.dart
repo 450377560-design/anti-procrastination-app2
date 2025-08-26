@@ -35,6 +35,13 @@ class _TasksPageState extends State<TasksPage> {
     setState(() => _date = _fmt(d.add(Duration(days: delta))));
   }
 
+  Future<void> _moveToTomorrow() async {
+    final n = await TaskDao.moveUnfinishedToTomorrow(_date);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已将 $_date 的 $n 个未完成任务移到明天')));
+    setState(() {});
+  }
+
   Future<void> _editTask([Task? t]) async {
     final ctrlTitle = TextEditingController(text: t?.title ?? '');
     final ctrlDesc = TextEditingController(text: t?.description ?? '');
@@ -218,9 +225,10 @@ class _TasksPageState extends State<TasksPage> {
             title: Text(_selected.isEmpty ? '任务清单 · $titleStr' : '已选择 ${_selected.length} 项'),
             actions: _selected.isEmpty
                 ? [
-                    IconButton(onPressed: () => _shiftDay(-1), icon: const Icon(Icons.chevron_left)),
-                    IconButton(onPressed: _pickDate, icon: const Icon(Icons.event)),
-                    IconButton(onPressed: () => _shiftDay(1), icon: const Icon(Icons.chevron_right)),
+                    IconButton(onPressed: () => _shiftDay(-1), icon: const Icon(Icons.chevron_left), tooltip: '前一天'),
+                    IconButton(onPressed: _pickDate, icon: const Icon(Icons.event), tooltip: '选择日期'),
+                    IconButton(onPressed: () => _shiftDay(1), icon: const Icon(Icons.chevron_right), tooltip: '后一天'),
+                    IconButton(onPressed: _moveToTomorrow, icon: const Icon(Icons.redo), tooltip: '未完成移到明天'),
                     PopupMenuButton<String>(
                       onSelected: (v) => setState(() => _sort = v),
                       itemBuilder: (_) => const [

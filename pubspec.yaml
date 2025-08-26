@@ -1,5 +1,5 @@
 name: anti_procrastination_app2
-description: Anti Procrastination App 2 (Flutter + Android 原生)
+description: Anti Procrastination App 2 (Flutter-only focus + tasks/templates/stats)
 publish_to: 'none'
 
 environment:
@@ -12,10 +12,9 @@ dependencies:
   path: ^1.9.0
   intl: ^0.19.0
   collection: ^1.18.0
-  flutter_local_notifications: ^17.2.1
   provider: ^6.1.2
-  wakelock_plus: ^1.2.5   # ← 新增：专注页保持常亮
-
+  wakelock_plus: ^1.2.5
+  fl_chart: ^0.66.2     # ← 新增：图表
 
 dev_dependencies:
   flutter_test:

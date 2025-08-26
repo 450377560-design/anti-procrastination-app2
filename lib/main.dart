@@ -32,6 +32,10 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+
+    // 先申请通知权限（Android 13+）
+    _ensureNotificationPermission();
+
     NativeBridge.onInterruption.listen((_) async {
       final reason = await _pickReason(context);
       if (reason != null && _currentSessionId != null) {
@@ -55,6 +59,13 @@ class _HomePageState extends State<HomePage> {
         if (mounted) _showSnack('专注已停止');
       }
     });
+  }
+
+  Future<void> _ensureNotificationPermission() async {
+    final ok = await NativeBridge.requestNotificationPermission();
+    if (!ok && mounted) {
+      _showSnack('未授予通知权限，专注与提醒可能无法工作');
+    }
   }
 
   Future<String?> _pickReason(BuildContext ctx) async {
@@ -88,10 +99,17 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _startFocus({required int minutes, required bool lock}) async {
-    final ok = await NativeBridge.startFocus(minutes: minutes, lock: lock);
-    if (ok) {
+    final ok = await NativeBridge.requestNotificationPermission();
+    if (!ok) {
+      _showSnack('请先在系统设置中允许通知权限');
+      return;
+    }
+    final started = await NativeBridge.startFocus(minutes: minutes, lock: lock);
+    if (started) {
       _currentSessionId = await FocusDao.startSession(minutes);
       if (mounted) _showSnack('已开始专注 $minutes 分钟');
+    } else {
+      _showSnack('启动失败');
     }
   }
 
@@ -114,12 +132,31 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 24),
             FilledButton(
-              onPressed: () => NativeBridge.plannerEnable(21, 30),
+              onPressed: () async {
+                final ok = await NativeBridge.plannerEnable(21, 30);
+                if (ok && mounted) _showSnack('已开启夜间规划 21:30');
+              },
               child: const Text('开启夜间规划 21:30'),
             ),
+            const SizedBox(height: 8),
             TextButton(
-              onPressed: () => NativeBridge.plannerDisable(),
+              onPressed: () async {
+                final ok = await NativeBridge.plannerDisable();
+                if (ok && mounted) _showSnack('已关闭夜间规划');
+              },
               child: const Text('关闭夜间规划'),
+            ),
+            const SizedBox(height: 24),
+            // 便于立刻验证：+1 分钟测试
+            OutlinedButton(
+              onPressed: () async {
+                final now = DateTime.now();
+                final minute = (now.minute + 1) % 60;
+                final hour = (minute == 0) ? (now.hour + 1) % 24 : now.hour;
+                final ok = await NativeBridge.plannerEnable(hour, minute);
+                if (ok && mounted) _showSnack('将于 ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} 推送夜间提醒（测试）');
+              },
+              child: const Text('测试夜间提醒（+1 分钟）'),
             ),
           ],
         ),

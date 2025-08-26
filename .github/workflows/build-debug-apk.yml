@@ -51,6 +51,12 @@ jobs:
 
       - name: Flutter clean
         run: flutter clean
+        
+      - name: Show lib tree (debug)
+        run: ls -R lib || true
+
+      - name: Dart analyze (show real error early)
+        run: flutter analyze
 
       - name: Fetch packages
         run: flutter pub get

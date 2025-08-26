@@ -13,18 +13,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 先安装 Flutter，待会要用 flutter create .
       - name: Install Flutter (stable)
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      # 补齐缺失的 android/ Gradle 脚手架（不会覆盖你已有源码）
       - name: Bootstrap Flutter project files
         run: flutter create .
 
-      # 再装 JDK（现在已有 Gradle 文件，可以安全开启缓存）
+      - name: Remove Kotlin DSL file to avoid conflicts
+        run: rm -f android/app/build.gradle.kts
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -32,21 +32,37 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      # 装好 Android SDK 基础工具（不再通过 packages 输入装具体包）
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      # 手动用 sdkmanager 安装所需平台与构建工具（关键修复！）
-      - name: Install Android platforms & build-tools
+      - name: Install Android platforms & build-tools (API 36, with fallback)
         run: |
           yes | sdkmanager --licenses
-          yes | sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          yes | sdkmanager --install "platforms;android-36" || yes | sdkmanager --install "platforms;android-35"
+          yes | sdkmanager --install "build-tools;36.0.0" || yes | sdkmanager --install "build-tools;35.0.0"
+          yes | sdkmanager --install "platform-tools"
+
+      # —— 关键：计算这次的版本号、短 SHA，并写入 GITHUB_ENV —— #
+      - name: Compute build metadata
+        run: |
+          echo "BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+          echo "BUILD_NAME=1.0.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+          echo "GIT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+
+      - name: Flutter clean
+        run: flutter clean
 
       - name: Fetch packages
         run: flutter pub get
 
-      - name: Build debug APK
-        run: flutter build apk --debug
+      - name: Build debug APK (auto version)
+        run: |
+          echo "Building version $BUILD_NAME ($BUILD_NUMBER), sha=$GIT_SHA"
+          flutter build apk --debug \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --dart-define=BUILD_NAME="$BUILD_NAME" \
+            --dart-define=GIT_SHA="$GIT_SHA"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

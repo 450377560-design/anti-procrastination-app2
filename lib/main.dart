@@ -14,6 +14,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false, // ← 去掉右上角 DEBUG 角标
       title: 'Anti Procrastination App 2',
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.blue),
       home: const Root(),
@@ -56,7 +57,9 @@ class FocusHome extends StatelessWidget {
   const FocusHome({super.key});
 
   Future<void> _start(BuildContext context, int minutes) async {
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => FocusPage(minutes: minutes)));
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => FocusPage(minutes: minutes)),
+    );
   }
 
   @override

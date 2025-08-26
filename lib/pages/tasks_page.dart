@@ -239,23 +239,25 @@ class _TasksPageState extends State<TasksPage> {
   Widget _buildTile(Task t) {
     final sel = _selected.contains(t.id);
     final labels = (t.labels ?? '').split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+
+    // 优先级颜色
+    final priColor = [null, Colors.red, Colors.orange, Colors.blue][t.priority];
+
     return InkWell(
       onLongPress: () => setState(() {
         if (t.id != null) {
-          if (sel) {
-            _selected.remove(t.id);
-          } else {
-            _selected.add(t.id!);
-          }
+          if (sel) _selected.remove(t.id);
+          else _selected.add(t.id!);
         }
       }),
       onTap: _selected.isEmpty ? () => _editTask(t) : () => setState(() {
         if (t.id != null) {
-          if (sel) _selected.remove(t.id); else _selected.add(t.id!);
+          if (sel) _selected.remove(t.id!);
+          else _selected.add(t.id!);
         }
       }),
       child: Container(
-        color: sel ? Theme.of(context).colorScheme.primary.withOpacity(.08) : null,
+        color: sel ? Theme.of(context).colorScheme.primary.withValues(alpha: .08) : null,
         child: ListTile(
           leading: Checkbox(
             value: t.done,
@@ -271,11 +273,11 @@ class _TasksPageState extends State<TasksPage> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: [null, Colors.red, Colors.orange, Colors.blue][t.priority]?.withOpacity(.12),
+                  color: priColor == null ? null : priColor.withValues(alpha: .12),
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: [null, Colors.red, Colors.orange, Colors.blue][t.priority] ?? Colors.grey),
+                  border: Border.all(color: priColor ?? Colors.grey),
                 ),
-                child: Text('P${t.priority}', style: TextStyle(color: [null, Colors.red, Colors.orange, Colors.blue][t.priority] ?? Colors.grey)),
+                child: Text('P${t.priority}', style: TextStyle(color: priColor ?? Colors.grey)),
               ),
             ],
           ),

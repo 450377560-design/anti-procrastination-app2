@@ -1,4 +1,3 @@
-import 'package:sqflite/sqflite.dart';
 import '../models/task.dart';
 import 'app_db.dart';
 
@@ -71,5 +70,25 @@ class TaskDao {
       }
     }
     return res;
+  }
+
+  /// 日历汇总：返回 { 'YYYY-MM-DD': {'total': x, 'done': y}, ... }
+  static Future<Map<String, Map<String, int>>> countsByDateRange(
+      String startDate, String endDate) async {
+    final db = await AppDB.db;
+    final rows = await db.rawQuery('''
+      SELECT date, COUNT(*) AS total, SUM(done) AS done
+      FROM tasks
+      WHERE date>=? AND date<=?
+      GROUP BY date
+    ''', [startDate, endDate]);
+    final map = <String, Map<String, int>>{};
+    for (final r in rows) {
+      final date = r['date'] as String;
+      final total = (r['total'] as int?) ?? 0;
+      final done = (r['done'] as int?) ?? 0;
+      map[date] = {'total': total, 'done': done};
+    }
+    return map;
   }
 }

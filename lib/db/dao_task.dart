@@ -91,4 +91,18 @@ class TaskDao {
     }
     return map;
   }
+
+  /// 把某天“未完成”的任务整体移到明天，返回移动数量
+  static Future<int> moveUnfinishedToTomorrow(String date) async {
+    final db = await AppDB.db;
+    final d = DateTime.parse(date);
+    final tom = DateTime(d.year, d.month, d.day + 1);
+    final toStr = "${tom.year.toString().padLeft(4,'0')}-${tom.month.toString().padLeft(2,'0')}-${tom.day.toString().padLeft(2,'0')}";
+    return await db.update(
+      'tasks',
+      {'date': toStr},
+      where: 'date=? AND done=0',
+      whereArgs: [date],
+    );
+  }
 }

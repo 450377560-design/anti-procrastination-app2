@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'services/native_bridge.dart';
 import 'db/dao_focus.dart';
 import 'focus_page.dart';
+import 'build_info.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -125,7 +126,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Anti Procrastination App 2')),
+      appBar: AppBar(title: const Text('专注 · v$kBuildName')),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,

@@ -5,6 +5,7 @@ import 'build_info.dart';
 import 'focus_page.dart';
 import 'pages/tasks_page.dart';
 import 'pages/stats_page.dart';
+import 'notify/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

@@ -1,8 +1,10 @@
 package com.wenxue.antiprocrastinationapp2
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -24,13 +26,29 @@ class MainActivity : FlutterActivity() {
                     "startFocus" -> {
                         val minutes = call.argument<Int>("minutes") ?: 25
                         val lock = call.argument<Boolean>("lock") ?: false
-                        val ok = FocusService.start(this, minutes, lock)
-                        result.success(ok)
+
+                        // 计算结束时间（供锁屏页显示倒计时）
+                        val endAt = SystemClock.elapsedRealtime() + minutes * 60_000L
+
+                        // 1) 先启动计时的前台服务（不再让服务去拉起锁屏 Activity）
+                        FocusService.start(this, minutes, /*lock=*/ false)
+
+                        // 2) 再由前台页面直接启动 LockActivity —— 规避“后台启动界面”限制
+                        if (lock) {
+                            val i = Intent(this, LockActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                putExtra("endAt", endAt)
+                            }
+                            startActivity(i)
+                        }
+                        result.success(true)
                     }
+
                     "stopFocus" -> {
                         val ok = FocusService.stop(this)
                         result.success(ok)
                     }
+
                     "plannerEnable" -> {
                         val hour = call.argument<Int>("hour") ?: 21
                         val minute = call.argument<Int>("minute") ?: 30
@@ -41,7 +59,8 @@ class MainActivity : FlutterActivity() {
                         PlannerReceiver.disableDailyPlanner(this)
                         result.success(true)
                     }
-                    // 新增：请求通知权限（Android 13+）
+
+                    // 请求通知权限（Android 13+）
                     "requestNotificationPermission" -> {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             val granted = ContextCompat.checkSelfPermission(
@@ -61,6 +80,7 @@ class MainActivity : FlutterActivity() {
                             result.success(true)
                         }
                     }
+
                     else -> result.notImplemented()
                 }
             }

@@ -17,8 +17,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.35.2'  # 固定版本
           cache: true
 
+      # 如无必要，可删除这一段
       - name: Bootstrap Flutter project files
         run: flutter create .
 
@@ -42,7 +44,6 @@ jobs:
           yes | sdkmanager --install "build-tools;36.0.0" || yes | sdkmanager --install "build-tools;35.0.0"
           yes | sdkmanager --install "platform-tools"
 
-      # 自动版本号/短 SHA 注入
       - name: Compute build metadata
         run: |
           echo "BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
@@ -55,7 +56,11 @@ jobs:
       - name: Fetch packages
         run: flutter pub get
 
-      # 仅用于排错的可视化与分析（不阻塞后续构建）
+      - name: Flutter env (debug)
+        run: |
+          flutter --version
+          dart --version
+
       - name: Show lib tree (debug)
         run: ls -R lib || true
 

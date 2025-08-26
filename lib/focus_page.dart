@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'services/native_bridge.dart';
+import 'db/dao_focus.dart';
 
 class FocusPage extends StatefulWidget {
   final int minutes;
@@ -13,43 +13,63 @@ class FocusPage extends StatefulWidget {
 }
 
 class _FocusPageState extends State<FocusPage> {
-  int _remaining = 0;
-  late final StreamSubscription<int> _tickSub;
-  late final StreamSubscription<void> _finishSub;
-  late final StreamSubscription<void> _stopSub;
-
-  String _fmt(int sec) {
-    final m = sec ~/ 60;
-    final s = sec % 60;
-    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
-  }
+  late int _remaining;
+  Timer? _timer;
+  bool _paused = false;
+  int? _sessionId;
 
   @override
   void initState() {
     super.initState();
-    // 全屏沉浸 + 常亮
+    _remaining = widget.minutes * 60;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     WakelockPlus.enable();
+    _startSession();
+  }
 
-    _tickSub = NativeBridge.onTick.listen((sec) {
-      if (mounted) setState(() => _remaining = sec);
-    });
-    _finishSub = NativeBridge.onFinish.listen((_) {
-      if (mounted) Navigator.pop(context); // 计时自然结束
-    });
-    _stopSub = NativeBridge.onStop.listen((_) {
-      if (mounted) Navigator.pop(context); // 被停止/打断
+  Future<void> _startSession() async {
+    _sessionId = await FocusDao.startSession(widget.minutes);
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) async {
+      if (_paused) return;
+      if (!mounted) return;
+      setState(() => _remaining--);
+      if (_remaining <= 0) {
+        await FocusDao.finishSession(_sessionId!, completed: true);
+        if (!mounted) return;
+        await _showReward();
+        Navigator.pop(context);
+      }
     });
   }
 
   @override
   void dispose() {
-    _tickSub.cancel();
-    _finishSub.cancel();
-    _stopSub.cancel();
+    _timer?.cancel();
     WakelockPlus.disable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
+  }
+
+  Future<void> _stop() async {
+    if (_sessionId != null) {
+      await FocusDao.finishSession(_sessionId!, completed: false);
+    }
+    if (!mounted) return;
+    Navigator.pop(context); // 返回上一页，不退出应用
+  }
+
+  String _fmt(int s) => '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
+
+  Future<void> _showReward() async {
+    // 简单积分：完成一次 +10
+    await showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('🎉 太棒了！'),
+        content: const Text('本次专注完成，奖励 +10 积分'),
+        actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('确定'))],
+      ),
+    );
   }
 
   @override
@@ -57,25 +77,19 @@ class _FocusPageState extends State<FocusPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              _fmt(_remaining),
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 96,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 2,
-              ),
-            ),
-            const SizedBox(height: 24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(_fmt(_remaining),
+              style: const TextStyle(color: Colors.white, fontSize: 96, fontWeight: FontWeight.w600, letterSpacing: 2)),
+          const SizedBox(height: 24),
+          Row(mainAxisSize: MainAxisSize.min, children: [
             FilledButton(
-              onPressed: () => NativeBridge.stopFocus(),
-              child: const Text('停止'),
+              onPressed: () => setState(() => _paused = !_paused),
+              child: Text(_paused ? '继续' : '暂停'),
             ),
-          ],
-        ),
+            const SizedBox(width: 12),
+            FilledButton.tonal(onPressed: _stop, child: const Text('停止')),
+          ]),
+        ]),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'services/native_bridge.dart';
 import 'db/dao_focus.dart';
+import 'focus_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,8 +33,6 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-
-    // 先申请通知权限（Android 13+）
     _ensureNotificationPermission();
 
     NativeBridge.onInterruption.listen((_) async {
@@ -98,16 +97,26 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _startFocus({required int minutes, required bool lock}) async {
+  Future<void> _startFocus({required int minutes}) async {
     final ok = await NativeBridge.requestNotificationPermission();
     if (!ok) {
       _showSnack('请先在系统设置中允许通知权限');
       return;
     }
-    final started = await NativeBridge.startFocus(minutes: minutes, lock: lock);
+    // lock=false：不再尝试原生锁屏 Activity
+    final started = await NativeBridge.startFocus(minutes: minutes, lock: false);
     if (started) {
       _currentSessionId = await FocusDao.startSession(minutes);
-      if (mounted) _showSnack('已开始专注 $minutes 分钟');
+      if (!mounted) return;
+      _showSnack('已开始专注 $minutes 分钟');
+
+      // 进入 Flutter 全屏专注页（不被系统拦截）
+      // 倒计时来自 NativeBridge.onTick
+      // 结束/停止后会自动返回
+      // ignore: use_build_context_synchronously
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => FocusPage(minutes: minutes)),
+      );
     } else {
       _showSnack('启动失败');
     }
@@ -122,8 +131,8 @@ class _HomePageState extends State<HomePage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             FilledButton(
-              onPressed: () => _startFocus(minutes: 25, lock: true),
-              child: const Text('开始 25 分钟（锁屏）'),
+              onPressed: () => _startFocus(minutes: 25),
+              child: const Text('开始 25 分钟（全屏）'),
             ),
             const SizedBox(height: 12),
             FilledButton.tonal(
@@ -147,7 +156,6 @@ class _HomePageState extends State<HomePage> {
               child: const Text('关闭夜间规划'),
             ),
             const SizedBox(height: 24),
-            // 便于立刻验证：+1 分钟测试
             OutlinedButton(
               onPressed: () async {
                 final now = DateTime.now();

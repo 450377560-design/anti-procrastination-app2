@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:flutter_native_timezone_updated_gradle/flutter_native_timezone.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import '../models/task.dart';
@@ -15,7 +15,7 @@ class NotificationService {
     // 时区
     tz.initializeTimeZones();
     try {
-      final name = await FlutterTimezone.getLocalTimezone();
+      final name = await FlutterNativeTimezone.getLocalTimezone();
       tz.setLocalLocation(tz.getLocation(name));
     } catch (_) {
       tz.setLocalLocation(tz.getLocation('Asia/Shanghai'));

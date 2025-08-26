@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 import '../models/task.dart';
 
 class NotificationService {
@@ -9,6 +11,20 @@ class NotificationService {
 
   static Future<void> init() async {
     if (_inited) return;
+
+    // 仅用纯 Dart 时区库，不依赖原生插件，避免 AGP 冲突
+    tz.initializeTimeZones();
+    try {
+      final name = _guessTimeZoneName();
+      tz.setLocalLocation(tz.getLocation(name));
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('TZ local set to $name');
+      }
+    } catch (_) {
+      tz.setLocalLocation(tz.getLocation('Etc/UTC'));
+    }
+
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     await _plugin.initialize(const InitializationSettings(android: androidInit));
 
@@ -18,6 +34,22 @@ class NotificationService {
         ?.requestNotificationsPermission();
 
     _inited = true;
+  }
+
+  // 依据本机 offset 粗略映射到常见时区名（够用且无原生依赖）
+  static String _guessTimeZoneName() {
+    final offsetMin = DateTime.now().timeZoneOffset.inMinutes; // 例如 +480
+    const map = <int, String>{
+      480: 'Asia/Shanghai',
+      540: 'Asia/Tokyo',
+      60:  'Europe/Berlin',
+      0:   'Etc/UTC',
+      -300: 'America/New_York',
+      -360: 'America/Chicago',
+      -420: 'America/Denver',
+      -480: 'America/Los_Angeles',
+    };
+    return map[offsetMin] ?? 'Etc/UTC';
   }
 
   static const _channelId = 'task_remind';
@@ -37,7 +69,7 @@ class NotificationService {
     return const NotificationDetails(android: android);
   }
 
-  /// 为带有 [date] + [startTime] 的任务安排一次性提醒（非 zoned，本地时间）
+  /// 根据任务的 [date] + [startTime] 安排一次提醒（本地时区）
   static Future<void> scheduleTaskReminder(Task t) async {
     if (!_inited) await init();
     if (t.id == null || t.date.isEmpty || t.startTime == null || t.done) return;
@@ -50,22 +82,23 @@ class NotificationService {
     final h = int.tryParse(parts[0]) ?? 0;
     final m = int.tryParse(parts[1]) ?? 0;
 
-    final fire = DateTime(d.year, d.month, d.day, h, m);
-    if (fire.isBefore(DateTime.now())) return;
+    final when = tz.TZDateTime(tz.local, d.year, d.month, d.day, h, m);
+    if (when.isBefore(tz.TZDateTime.from(DateTime.now(), tz.local))) return;
 
-    await _plugin.schedule(
+    await _plugin.zonedSchedule(
       t.id!, // 用任务 id 作为通知 id
       '开始做：${t.title}',
       t.endTime == null ? '现在是你计划的开始时间' : '计划时段：${t.startTime}–${t.endTime}',
-      fire, // 本地时间
+      when,
       _details(),
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle, // 不要精确闹钟权限
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
       payload: 'task:${t.id}',
     );
 
     if (kDebugMode) {
       // ignore: avoid_print
-      print('Scheduled #${t.id} at $fire');
+      print('Scheduled #${t.id} at $when');
     }
   }
 

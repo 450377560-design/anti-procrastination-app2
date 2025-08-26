@@ -56,7 +56,6 @@ class FocusDao {
   /// 连续专注天数（从今天往前，直到遇到没有完成会话的那天）
   static Future<int> streakDays() async {
     final db = await AppDB.db;
-    // 取最近 180 天有完成记录的日期集合
     final from = DateTime.now().subtract(const Duration(days: 180)).millisecondsSinceEpoch;
     final to = DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch;
     final rows = await db.rawQuery('''
@@ -85,5 +84,13 @@ class FocusDao {
       }
     }
     return streak;
+  }
+
+  /// 总积分（每个完成会话 +10）
+  static Future<int> pointsTotal() async {
+    final db = await AppDB.db;
+    final rows = await db.rawQuery('SELECT COUNT(*) AS cnt FROM focus_sessions WHERE completed=1');
+    final cnt = (rows.first['cnt'] as int?) ?? 0;
+    return cnt * 10;
   }
 }

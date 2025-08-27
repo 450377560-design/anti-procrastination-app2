@@ -1,84 +1,55 @@
+import 'dart:async';
 import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart' as p;
 
-class AppDB {
+/// 统一的数据库入口。
+/// - 首次打开时确保专注相关三张表存在；
+/// - 其他表（任务/模板/笔记）由各自 Dao 负责创建即可。
+class AppDb {
   static Database? _db;
 
   static Future<Database> get db async {
     if (_db != null) return _db!;
-    final path = p.join(await getDatabasesPath(), 'anti_procrastination_app2.db');
-    // 升级到 v3：focus_sessions 增加 rest_seconds；tasks 增加 note
-    _db = await openDatabase(path, version: 3, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    final dir = await getDatabasesPath();
+    final path = '$dir/anti_procrastination_app2.db';
+
+    _db = await openDatabase(
+      path,
+      version: 2,
+      onOpen: (d) async {
+        // 专注会话表
+        await d.execute('''
+          CREATE TABLE IF NOT EXISTS focus_sessions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_ts INTEGER,
+            end_ts INTEGER,
+            planned_minutes INTEGER,
+            actual_minutes INTEGER,
+            completed INTEGER,
+            task_id INTEGER
+          )
+        ''');
+
+        // 打断记录表
+        await d.execute('''
+          CREATE TABLE IF NOT EXISTS interruptions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            ts INTEGER,
+            reason TEXT
+          )
+        ''');
+
+        // 休息时长表（暂停累加）
+        await d.execute('''
+          CREATE TABLE IF NOT EXISTS focus_rest(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            ts INTEGER,
+            seconds INTEGER
+          )
+        ''');
+      },
+    );
     return _db!;
-  }
-
-  static Future _onCreate(Database d, int v) async {
-    await d.execute('''
-      CREATE TABLE tasks(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        description TEXT,
-        priority INTEGER,
-        start_time TEXT,
-        end_time TEXT,
-        expected_minutes INTEGER,
-        labels TEXT,
-        project TEXT,
-        date TEXT NOT NULL,
-        done INTEGER NOT NULL DEFAULT 0,
-        estimate_pomos INTEGER,
-        actual_pomos INTEGER NOT NULL DEFAULT 0,
-        note TEXT
-      );
-    ''');
-
-    await d.execute('''
-      CREATE TABLE templates(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        payload TEXT NOT NULL
-      );
-    ''');
-
-    await d.execute('''
-      CREATE TABLE focus_sessions(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        start_ts INTEGER NOT NULL,
-        end_ts INTEGER,
-        planned_minutes INTEGER NOT NULL,
-        completed INTEGER NOT NULL DEFAULT 0,
-        task_id INTEGER,
-        goal_text TEXT,
-        rest_seconds INTEGER NOT NULL DEFAULT 0
-      );
-    ''');
-
-    await d.execute('''
-      CREATE TABLE interruptions(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id INTEGER NOT NULL,
-        ts INTEGER NOT NULL,
-        reason TEXT NOT NULL
-      );
-    ''');
-  }
-
-  static Future _onUpgrade(Database d, int oldV, int newV) async {
-    await _safeAddColumn(d, 'focus_sessions', 'task_id', 'INTEGER');
-    await _safeAddColumn(d, 'focus_sessions', 'goal_text', 'TEXT');
-    await _safeAddColumn(d, 'focus_sessions', 'rest_seconds', 'INTEGER NOT NULL DEFAULT 0');
-    await _safeAddColumn(d, 'tasks', 'estimate_pomos', 'INTEGER');
-    await _safeAddColumn(d, 'tasks', 'actual_pomos', 'INTEGER NOT NULL DEFAULT 0');
-    await _safeAddColumn(d, 'tasks', 'note', 'TEXT');
-  }
-
-  static Future _safeAddColumn(Database d, String table, String col, String def) async {
-    try {
-      final info = await d.rawQuery('PRAGMA table_info($table)');
-      final exists = info.any((c) => c['name'] == col);
-      if (!exists) {
-        await d.execute('ALTER TABLE $table ADD COLUMN $col $def');
-      }
-    } catch (_) {}
   }
 }

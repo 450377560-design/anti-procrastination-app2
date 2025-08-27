@@ -70,7 +70,21 @@ class _TasksPageState extends State<TasksPage> {
     setState(() {});
   }
 
-  // ========== 新：滚轮时间选择 ==========
+  /// 计算 start/end 的分钟差；若跨天（结束小于开始）则按 24h 回绕
+  int? _diffMinutes(String? start, String? end) {
+    if (start == null || end == null || start.isEmpty || end.isEmpty) return null;
+    final re = RegExp(r'^(\d{1,2}):(\d{2})$');
+    final ms = re.firstMatch(start);
+    final me = re.firstMatch(end);
+    if (ms == null || me == null) return null;
+    final s = int.parse(ms.group(1)!) * 60 + int.parse(ms.group(2)!);
+    final e = int.parse(me.group(1)!) * 60 + int.parse(me.group(2)!);
+    var d = e - s;
+    if (d <= 0) d += 24 * 60; // 允许跨天
+    return d;
+  }
+
+  // ========== 滚轮时间选择 ==========
   Future<String?> _pickTimeWheel(String? initStr) async {
     TimeOfDay init;
     if (initStr != null && RegExp(r'^\d{1,2}:\d{2}$').hasMatch(initStr)) {
@@ -172,11 +186,13 @@ class _TasksPageState extends State<TasksPage> {
         priority = tmp.priority;
         ctrlStart.text = tmp.startTime ?? '';
         ctrlEnd.text = tmp.endTime ?? '';
-        ctrlExp.text = (tmp.expectedMinutes ?? 25).toString();
+        // 自动回填预计分钟
+        final auto = _diffMinutes(ctrlStart.text, ctrlEnd.text);
+        if (auto != null) ctrlExp.text = auto.toString();
+
         ctrlLabels.text = tmp.labels ?? '';
         ctrlProject.text = tmp.project ?? '';
         ctrlEstPomos.text = (tmp.estimatePomos ?? '').toString();
-        // 对话框内部 TextField 由 controller 驱动，无需 setState
       }
     }
 
@@ -251,21 +267,25 @@ class _TasksPageState extends State<TasksPage> {
                         ),
                       ],
                     ),
-                    // ======= 新：滚轮选择时间 =======
+                    // ======= 滚轮选择时间（自动计算预计分钟） =======
                     Row(
                       children: [
                         Expanded(
                           child: GestureDetector(
                             onTap: () async {
                               final v = await _pickTimeWheel(ctrlStart.text);
-                              if (v != null) setD(() => ctrlStart.text = v);
+                              if (v != null) {
+                                setD(() => ctrlStart.text = v);
+                                final m = _diffMinutes(ctrlStart.text, ctrlEnd.text);
+                                if (m != null) setD(() => ctrlExp.text = m.toString());
+                              }
                             },
                             child: AbsorbPointer(
                               child: TextField(
                                 controller: ctrlStart,
                                 readOnly: true,
                                 decoration: const InputDecoration(
-                                  labelText: '开始(可点选择)',
+                                  labelText: '开始',
                                   suffixIcon: Icon(Icons.access_time),
                                 ),
                               ),
@@ -277,14 +297,18 @@ class _TasksPageState extends State<TasksPage> {
                           child: GestureDetector(
                             onTap: () async {
                               final v = await _pickTimeWheel(ctrlEnd.text);
-                              if (v != null) setD(() => ctrlEnd.text = v);
+                              if (v != null) {
+                                setD(() => ctrlEnd.text = v);
+                                final m = _diffMinutes(ctrlStart.text, ctrlEnd.text);
+                                if (m != null) setD(() => ctrlExp.text = m.toString());
+                              }
                             },
                             child: AbsorbPointer(
                               child: TextField(
                                 controller: ctrlEnd,
                                 readOnly: true,
                                 decoration: const InputDecoration(
-                                  labelText: '结束(可点选择)',
+                                  labelText: '结束',
                                   suffixIcon: Icon(Icons.access_time),
                                 ),
                               ),
@@ -298,7 +322,8 @@ class _TasksPageState extends State<TasksPage> {
                         Expanded(
                           child: TextField(
                             controller: ctrlExp,
-                            decoration: const InputDecoration(labelText: '预计分钟'),
+                            readOnly: true, // ← 只读：由时间自动计算
+                            decoration: const InputDecoration(labelText: '预计分钟（自动）'),
                             keyboardType: TextInputType.number,
                           ),
                         ),
@@ -350,7 +375,7 @@ class _TasksPageState extends State<TasksPage> {
                                 priority: priority,
                                 startTime: ctrlStart.text.isEmpty ? null : ctrlStart.text,
                                 endTime: ctrlEnd.text.isEmpty ? null : ctrlEnd.text,
-                                expectedMinutes: int.tryParse(ctrlExp.text),
+                                expectedMinutes: _diffMinutes(ctrlStart.text, ctrlEnd.text),
                                 labels: ctrlLabels.text.isEmpty ? null : ctrlLabels.text,
                                 project: ctrlProject.text.isEmpty ? null : ctrlProject.text,
                                 date: _date,
@@ -381,6 +406,9 @@ class _TasksPageState extends State<TasksPage> {
 
     if (!mounted) return;
     if (ok == true) {
+      // 兜底：保存前再根据时间计算一次预计分钟
+      final expected = _diffMinutes(ctrlStart.text, ctrlEnd.text);
+
       final task = Task(
         id: t?.id,
         title: ctrlTitle.text,
@@ -388,7 +416,7 @@ class _TasksPageState extends State<TasksPage> {
         priority: priority,
         startTime: ctrlStart.text.isEmpty ? null : ctrlStart.text,
         endTime: ctrlEnd.text.isEmpty ? null : ctrlEnd.text,
-        expectedMinutes: int.tryParse(ctrlExp.text),
+        expectedMinutes: expected,
         labels: ctrlLabels.text.isEmpty ? null : ctrlLabels.text,
         project: ctrlProject.text.isEmpty ? null : ctrlProject.text,
         date: _date,
@@ -489,7 +517,7 @@ class _TasksPageState extends State<TasksPage> {
     final now = DateTime.now();
     if (choice == 'month') {
       from = DateTime(now.year, now.month, 1);
-      to = DateTime(now.year, now.month, 0 + DateTime(now.year, now.month + 1, 0).day);
+      to = DateTime(now.year, now.month + 1, 0); // 本月最后一天
     } else {
       final days = int.parse(choice);
       from = DateTime(now.year, now.month, now.day).subtract(Duration(days: days - 1));
@@ -512,8 +540,7 @@ class _TasksPageState extends State<TasksPage> {
     }
 
     final dir = await getTemporaryDirectory();
-    final file = File(
-        '${dir.path}/tasks_export_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.md');
+    final file = File('${dir.path}/tasks_export_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.md');
     await file.writeAsString(buf.toString());
 
     await Share.shareXFiles([XFile(file.path)], text: '完成任务导出');
@@ -525,8 +552,7 @@ class _TasksPageState extends State<TasksPage> {
       future: TaskDao.listByDate(_date, sort: _sort),
       builder: (context, snap) {
         final list = snap.data ?? <Task>[];
-        final groups =
-            groupBy(list, (Task t) => (t.project?.isNotEmpty == true) ? t.project! : '未分组');
+        final groups = groupBy(list, (Task t) => (t.project?.isNotEmpty == true) ? t.project! : '未分组');
         final d = DateTime.tryParse(_date) ?? DateTime.now();
         final dayStr = DateFormat('yyyy-MM-dd (EEE)', 'zh_CN').format(d);
 
@@ -561,8 +587,9 @@ class _TasksPageState extends State<TasksPage> {
                     IconButton(onPressed: _batchDelete, icon: const Icon(Icons.delete_outline)),
                   ],
           ),
-          floatingActionButton:
-              _selected.isEmpty ? FloatingActionButton(onPressed: () => _editTask(), child: const Icon(Icons.add)) : null,
+          floatingActionButton: _selected.isEmpty
+              ? FloatingActionButton(onPressed: () => _editTask(), child: const Icon(Icons.add))
+              : null,
           body: ListView(
             children: [
               // 顶部日期导航行：横向可滚动，避免溢出
@@ -594,7 +621,7 @@ class _TasksPageState extends State<TasksPage> {
                 ),
               ),
 
-              // 各分组任务（美化：卡片 + 柔和背景）
+              // 各分组任务（卡片 + 柔和背景）
               ...groups.entries.map((e) {
                 final title = e.key;
                 final items = e.value;
@@ -619,8 +646,7 @@ class _TasksPageState extends State<TasksPage> {
 
   Widget _buildTile(Task t) {
     final sel = _selected.contains(t.id);
-    final labels =
-        (t.labels ?? '').split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    final labels = (t.labels ?? '').split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     final priColor = [null, Colors.red, Colors.orange, Colors.blue][t.priority];
     final baseColor = colorFromString(t.project ?? t.title);
     final bg = baseColor.withValues(alpha: .06);

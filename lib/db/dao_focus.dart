@@ -1,45 +1,47 @@
 import 'dart:async';
 import 'package:sqflite/sqflite.dart';
-import 'app_db.dart';
+import 'package:anti_procrastination_app2/db/app_db.dart';
 
 /// 说明：
-/// 1) 兼容既有表：focus_sessions / interruptions / focus_rest
-///    - focus_sessions: id, start_ts, end_ts, planned_minutes, actual_minutes, completed(0/1), task_id
-///    - interruptions : id, session_id, ts, reason
-///    - focus_rest    : id, session_id, ts, seconds
-/// 2) 即使某些列不存在（如 completed / actual_minutes），也会有降级行为：
-///    - “完成”以 end_ts 非空近似
-///    - “分钟”优先 actual_minutes，其次 planned_minutes，再其次 (end-start)/60
+/// - 保留与兼容：startSession 现在既支持「位置参数 minutes」也支持命名参数 plannedMinutes，
+///   这样你现有的 focus_page.dart 不用改；
+/// - finishSession 兼容可选命名参数 restSeconds（你的代码里有传），会自动累加到休息表；
+/// - 聚合接口补齐：minutesThisMonth / minutesAll 用于统计页“等价卡片”本月/累计；
 class FocusDao {
   // ------------------- 写入类接口（供专注页调用） -------------------
 
   /// 开始一次专注；返回 sessionId
-  static Future<int> startSession({
-    required int plannedMinutes,
+  /// 兼容两种用法：
+  ///   startSession(25) 或 startSession(plannedMinutes: 25, taskId: 1)
+  static Future<int> startSession([int? minutes, {
+    int? plannedMinutes,
     int? taskId,
     DateTime? start,
-  }) async {
+  }]) async {
     final db = await AppDb.db;
     await _ensureTables(db);
     final now = (start ?? DateTime.now()).millisecondsSinceEpoch;
+    final plan = plannedMinutes ?? minutes ?? 25;
     return await db.insert('focus_sessions', {
       'start_ts': now,
-      'planned_minutes': plannedMinutes,
+      'planned_minutes': plan,
       'task_id': taskId,
       'completed': 0,
     });
   }
 
   /// 结束一次专注；completed=true 代表“完成”，false 代表“中止/打断”
+  /// 兼容可选参数 restSeconds：若传入则同时记入休息统计
   static Future<void> finishSession(
     int sessionId, {
     required bool completed,
+    int? restSeconds,
     DateTime? end,
   }) async {
     final db = await AppDb.db;
     await _ensureTables(db);
 
-    // 读取开始时间和计划分钟，用于兜底计算
+    // 读取 start_ts / planned_minutes 做兜底
     final rows = await db.query('focus_sessions',
         columns: ['start_ts', 'planned_minutes'],
         where: 'id=?',
@@ -53,7 +55,6 @@ class FocusDao {
     final diffMin = ((endMs - mStart) / 60000).round();
     final actual = diffMin > 0 ? diffMin : (planned > 0 ? planned : 0);
 
-    // 可能不存在 completed/actual_minutes 列，做两次更新尝试
     try {
       await db.update(
         'focus_sessions',
@@ -66,13 +67,13 @@ class FocusDao {
         whereArgs: [sessionId],
       );
     } catch (_) {
-      // 降级：只更新 end_ts
-      await db.update(
-        'focus_sessions',
-        {'end_ts': endMs},
-        where: 'id=?',
-        whereArgs: [sessionId],
-      );
+      // 降级（老表无 completed/actual_minutes）
+      await db.update('focus_sessions', {'end_ts': endMs}, where: 'id=?', whereArgs: [sessionId]);
+    }
+
+    // 若带了休息秒数，记一条
+    if (restSeconds != null && restSeconds > 0) {
+      await addRestSeconds(sessionId, restSeconds);
     }
   }
 
@@ -101,8 +102,7 @@ class FocusDao {
 
   // ------------------- 统计聚合接口（供统计页调用） -------------------
 
-  /// 区间内所有专注会话（用于按条目渲染或外部自定义汇总）
-  /// 返回 Map 至少包含：minutes（本方法计算后的分钟数）
+  /// 区间内所有专注会话；返回 Map 至少包含：minutes（计算后的分钟数）
   static Future<List<Map<String, Object?>>> loadSessionsBetween(
       DateTime from, DateTime to) async {
     final db = await AppDb.db;
@@ -110,7 +110,6 @@ class FocusDao {
     final f = from.millisecondsSinceEpoch;
     final t = to.millisecondsSinceEpoch;
 
-    // 选取可能的分钟列，兜底用 (end-start)/60
     final rows = await db.rawQuery('''
       SELECT
         id,
@@ -163,19 +162,17 @@ class FocusDao {
           [f, t]);
       return (r.first['s'] as int?) ?? 0;
     } catch (_) {
-      // 如果没有 focus_rest 表/列，返回 0
       return 0;
     }
   }
 
-  /// 连续达成天数（从今天往回数，某天有“完成”会话则+1）
+  /// 连续达成天数（有完成会话算 1 天）
   static Future<int> streakDays() async {
     final db = await AppDb.db;
     await _ensureTables(db);
 
     int streak = 0;
-    DateTime cursor =
-        DateTime.now(); // 今天 23:59:59 作为上界，逐天回溯
+    DateTime cursor = DateTime.now();
     while (true) {
       final dayStart = DateTime(cursor.year, cursor.month, cursor.day);
       final dayEnd = dayStart.add(const Duration(days: 1)).subtract(const Duration(milliseconds: 1));
@@ -183,7 +180,6 @@ class FocusDao {
       final f = dayStart.millisecondsSinceEpoch;
       final t = dayEnd.millisecondsSinceEpoch;
 
-      // 优先用 completed=1，其次用 end_ts 非空近似
       int cnt = 0;
       try {
         final r = await db.rawQuery(
@@ -214,13 +210,11 @@ class FocusDao {
     final db = await AppDb.db;
     await _ensureTables(db);
     try {
-      final r = await db.rawQuery(
-          'SELECT COUNT(*) AS c FROM focus_sessions WHERE completed=1');
+      final r = await db.rawQuery('SELECT COUNT(*) AS c FROM focus_sessions WHERE completed=1');
       final c = (r.first['c'] as int?) ?? 0;
       return c * 10;
     } catch (_) {
-      final r = await db.rawQuery(
-          'SELECT COUNT(*) AS c FROM focus_sessions WHERE end_ts IS NOT NULL');
+      final r = await db.rawQuery('SELECT COUNT(*) AS c FROM focus_sessions WHERE end_ts IS NOT NULL');
       final c = (r.first['c'] as int?) ?? 0;
       return c * 10;
     }
@@ -248,7 +242,6 @@ class FocusDao {
   static Future<int> minutesAll() async {
     final db = await AppDb.db;
     await _ensureTables(db);
-    // 直接聚合，避免全量拉回
     try {
       final r = await db.rawQuery('''
         SELECT SUM(
@@ -264,7 +257,6 @@ class FocusDao {
       ''');
       return (r.first['total'] as int?) ?? 0;
     } catch (_) {
-      // 极端降级：读全部后在内存算
       final rows = await db.query('focus_sessions');
       var sum = 0;
       for (final r in rows) {
@@ -289,7 +281,6 @@ class FocusDao {
   // ------------------- 表结构兜底（如不存在则创建最小结构） -------------------
 
   static Future<void> _ensureTables(Database db) async {
-    // focus_sessions
     await db.execute('''
       CREATE TABLE IF NOT EXISTS focus_sessions(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -301,7 +292,6 @@ class FocusDao {
         task_id INTEGER
       )
     ''');
-    // interruptions
     await db.execute('''
       CREATE TABLE IF NOT EXISTS interruptions(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -310,7 +300,6 @@ class FocusDao {
         reason TEXT
       )
     ''');
-    // focus_rest
     await db.execute('''
       CREATE TABLE IF NOT EXISTS focus_rest(
         id INTEGER PRIMARY KEY AUTOINCREMENT,

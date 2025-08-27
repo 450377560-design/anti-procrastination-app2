@@ -1,14 +1,9 @@
 import 'dart:async';
 import 'package:sqflite/sqflite.dart';
-import 'package:anti_procrastination_app2/db/app_db.dart';
+import 'app_db.dart';
 
-/// 说明：
-/// - startSession 改为仅命名参数；请把调用处改为命名方式（见下文 B）
-/// - finishSession 兼容 restSeconds
-/// - minutesThisMonth / minutesAll 提供给统计页“等价卡片”
 class FocusDao {
-  // ------------------- 写入类接口 -------------------
-
+  // ---------- 写入 ----------
   /// 开始一次专注；返回 sessionId
   static Future<int> startSession({
     required int plannedMinutes,
@@ -26,7 +21,7 @@ class FocusDao {
     });
   }
 
-  /// 结束一次专注；completed=true 表示“完成”，false 表示“中止/打断”
+  /// 结束一次专注；completed=true 表示完成，否则中止
   static Future<void> finishSession(
     int sessionId, {
     required bool completed,
@@ -41,6 +36,7 @@ class FocusDao {
       columns: ['start_ts', 'planned_minutes'],
       where: 'id=?',
       whereArgs: [sessionId],
+      limit: 1,
     );
     if (rows.isEmpty) return;
 
@@ -51,20 +47,16 @@ class FocusDao {
     final diffMin = ((endMs - mStart) / 60000).round();
     final actual  = diffMin > 0 ? diffMin : (planned > 0 ? planned : 0);
 
-    try {
-      await db.update(
-        'focus_sessions',
-        {
-          'end_ts': endMs,
-          'actual_minutes': actual,
-          'completed': completed ? 1 : 0,
-        },
-        where: 'id=?',
-        whereArgs: [sessionId],
-      );
-    } catch (_) {
-      await db.update('focus_sessions', {'end_ts': endMs}, where: 'id=?', whereArgs: [sessionId]);
-    }
+    await db.update(
+      'focus_sessions',
+      {
+        'end_ts': endMs,
+        'actual_minutes': actual,
+        'completed': completed ? 1 : 0,
+      },
+      where: 'id=?',
+      whereArgs: [sessionId],
+    );
 
     if (restSeconds != null && restSeconds > 0) {
       await addRestSeconds(sessionId, restSeconds);
@@ -94,8 +86,7 @@ class FocusDao {
     });
   }
 
-  // ------------------- 统计聚合接口 -------------------
-
+  // ---------- 统计 ----------
   /// 区间内所有会话（每行包含 minutes 字段）
   static Future<List<Map<String, Object?>>> loadSessionsBetween(
       DateTime from, DateTime to) async {
@@ -161,7 +152,7 @@ class FocusDao {
     }
   }
 
-  /// 连续达成天数（当日有完成会话记 1）
+  /// 连续达成天数（当日有“完成”会话记 1）
   static Future<int> streakDays() async {
     final db = await AppDb.db;
     await _ensureTables(db);
@@ -174,20 +165,11 @@ class FocusDao {
       final f = dayStart.millisecondsSinceEpoch;
       final t = dayEnd.millisecondsSinceEpoch;
 
-      int cnt = 0;
-      try {
-        final r = await db.rawQuery(
-          'SELECT COUNT(*) AS c FROM focus_sessions WHERE completed=1 AND end_ts BETWEEN ? AND ?',
-          [f, t],
-        );
-        cnt = (r.first['c'] as int?) ?? 0;
-      } catch (_) {
-        final r = await db.rawQuery(
-          'SELECT COUNT(*) AS c FROM focus_sessions WHERE end_ts IS NOT NULL AND end_ts BETWEEN ? AND ?',
-          [f, t],
-        );
-        cnt = (r.first['c'] as int?) ?? 0;
-      }
+      final r = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM focus_sessions WHERE completed=1 AND end_ts BETWEEN ? AND ?',
+        [f, t],
+      );
+      final cnt = (r.first['c'] as int?) ?? 0;
 
       if (cnt > 0) {
         streak += 1;
@@ -203,15 +185,9 @@ class FocusDao {
   static Future<int> pointsTotal() async {
     final db = await AppDb.db;
     await _ensureTables(db);
-    try {
-      final r = await db.rawQuery('SELECT COUNT(*) AS c FROM focus_sessions WHERE completed=1');
-      final c = (r.first['c'] as int?) ?? 0;
-      return c * 10;
-    } catch (_) {
-      final r = await db.rawQuery('SELECT COUNT(*) AS c FROM focus_sessions WHERE end_ts IS NOT NULL');
-      final c = (r.first['c'] as int?) ?? 0;
-      return c * 10;
-    }
+    final r = await db.rawQuery('SELECT COUNT(*) AS c FROM focus_sessions WHERE completed=1');
+    final c = (r.first['c'] as int?) ?? 0;
+    return c * 10;
   }
 
   /// 区间内专注分钟总和
@@ -232,58 +208,24 @@ class FocusDao {
     return minutesBetween(from, to);
   }
 
-  /// 累计专注分钟（全表）
+  /// 累计专注分钟
   static Future<int> minutesAll() async {
-    final db = await AppDb.db;
-    await _ensureTables(db);
-    try {
-      final r = await db.rawQuery('''
-        SELECT SUM(
-          CASE
-            WHEN actual_minutes IS NOT NULL THEN actual_minutes
-            WHEN end_ts IS NOT NULL AND start_ts IS NOT NULL
-              THEN CAST(ROUND((end_ts - start_ts)/60000.0) AS INTEGER)
-            WHEN planned_minutes IS NOT NULL THEN planned_minutes
-            ELSE 0
-          END
-        ) AS total
-        FROM focus_sessions
-      ''');
-      return (r.first['total'] as int?) ?? 0;
-    } catch (_) {
-      final rows = await db.query('focus_sessions');
-      var sum = 0;
-      for (final r in rows) {
-        final am = r['actual_minutes'] as int?;
-        final pm = r['planned_minutes'] as int?;
-        final st = r['start_ts'] as int?;
-        final et = r['end_ts'] as int?;
-        int m = 0;
-        if (am != null) {
-          m = am;
-        } else if (st != null && et != null) {
-          m = ((et - st) / 60000).round();
-        } else if (pm != null) {
-          m = pm;
-        }
-        sum += m;
-      }
-      return sum;
-    }
+    final from = DateTime(2000, 1, 1);
+    final to   = DateTime.now();
+    return minutesBetween(from, to);
   }
 
-  // ------------------- 表结构兜底 -------------------
-
+  // ---------- 表结构（只创建不存在的） ----------
   static Future<void> _ensureTables(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS focus_sessions(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        start_ts INTEGER,
-        end_ts INTEGER,
+        start_ts INTEGER NOT NULL,
+        end_ts   INTEGER,
         planned_minutes INTEGER,
-        actual_minutes INTEGER,
-        completed INTEGER,
-        task_id INTEGER
+        actual_minutes  INTEGER,
+        completed INTEGER DEFAULT 0,
+        task_id  INTEGER
       )
     ''');
     await db.execute('''

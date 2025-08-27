@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -29,7 +30,6 @@ class _TasksPageState extends State<TasksPage> {
   void initState() {
     super.initState();
     NotificationService.init();
-    // 首次启动补充内置模板（若已存在则跳过）
     TemplateDao.seedDefaults(_date);
   }
 
@@ -70,6 +70,60 @@ class _TasksPageState extends State<TasksPage> {
     setState(() {});
   }
 
+  // ========== 新：滚轮时间选择 ==========
+  Future<String?> _pickTimeWheel(String? initStr) async {
+    TimeOfDay init;
+    if (initStr != null && RegExp(r'^\d{1,2}:\d{2}$').hasMatch(initStr)) {
+      final p = initStr.split(':');
+      init = TimeOfDay(hour: int.parse(p[0]), minute: int.parse(p[1]));
+    } else {
+      init = TimeOfDay.now();
+    }
+    TimeOfDay temp = init;
+
+    return await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (c) {
+        DateTime dtInit = DateTime(2000, 1, 1, init.hour, init.minute);
+        return SizedBox(
+          height: 260,
+          child: Column(
+            children: [
+              Expanded(
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.time,
+                  initialDateTime: dtInit,
+                  use24hFormat: true,
+                  onDateTimeChanged: (dt) {
+                    temp = TimeOfDay.fromDateTime(dt);
+                  },
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(onPressed: () => Navigator.pop(c), child: const Text('取消')),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: () {
+                      final hh = temp.hour.toString().padLeft(2, '0');
+                      final mm = temp.minute.toString().padLeft(2, '0');
+                      Navigator.pop(c, '$hh:$mm');
+                    },
+                    child: const Text('确定'),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+              ),
+              const SizedBox(height: 6),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _editTask([Task? t]) async {
     final ctrlTitle = TextEditingController(text: t?.title ?? '');
     final ctrlDesc = TextEditingController(text: t?.description ?? '');
@@ -81,9 +135,12 @@ class _TasksPageState extends State<TasksPage> {
     final ctrlEstPomos = TextEditingController(text: (t?.estimatePomos ?? '').toString());
     int priority = t?.priority ?? 2;
 
+    // 方便更新对话框内部 UI
+    bool dialogMounted = true;
+
     Future<void> applyTemplate() async {
       final list = await TemplateDao.list();
-      if (!mounted) return;
+      if (!mounted || !dialogMounted) return;
       final id = await showModalBottomSheet<int>(
         context: context,
         showDragHandle: true,
@@ -107,7 +164,7 @@ class _TasksPageState extends State<TasksPage> {
           ),
         ),
       );
-      if (!mounted) return;
+      if (!mounted || !dialogMounted) return;
       if (id != null) {
         final tmp = await TemplateDao.apply(id, _date);
         ctrlTitle.text = tmp.title;
@@ -119,171 +176,207 @@ class _TasksPageState extends State<TasksPage> {
         ctrlLabels.text = tmp.labels ?? '';
         ctrlProject.text = tmp.project ?? '';
         ctrlEstPomos.text = (tmp.estimatePomos ?? '').toString();
-        setState(() {});
+        // 对话框内部 TextField 由 controller 驱动，无需 setState
       }
     }
 
     final ok = await showDialog<bool>(
       context: context,
-      builder: (c) => AlertDialog(
-        title: Text(t == null ? '新建任务' : '编辑任务'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 快速模板按钮行
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  OutlinedButton(
-                    onPressed: () {
-                      ctrlTitle.text = '深度工作块';
-                      ctrlExp.text = '50';
-                      priority = 1;
-                      ctrlLabels.text = '专注';
-                      ctrlProject.text = '工作';
-                      ctrlEstPomos.text = '2';
-                    },
-                    child: const Text('深度工作 50'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () {
-                      ctrlTitle.text = '晨间规划';
-                      ctrlExp.text = '10';
-                      priority = 2;
-                      ctrlLabels.text = '规划';
-                      ctrlProject.text = '日常';
-                    },
-                    child: const Text('晨间规划 10'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () {
-                      ctrlTitle.text = '阅读';
-                      ctrlExp.text = '20';
-                      priority = 2;
-                      ctrlLabels.text = '学习';
-                      ctrlProject.text = '自我提升';
-                    },
-                    child: const Text('阅读 20'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              TextField(controller: ctrlTitle, decoration: const InputDecoration(labelText: '标题')),
-              TextField(controller: ctrlDesc, decoration: const InputDecoration(labelText: '描述')),
-              Row(
-                children: [
-                  const Text('优先级：'),
-                  const SizedBox(width: 8),
-                  DropdownButton<int>(
-                    value: priority,
-                    items: const [
-                      DropdownMenuItem(value: 1, child: Text('P1')),
-                      DropdownMenuItem(value: 2, child: Text('P2')),
-                      DropdownMenuItem(value: 3, child: Text('P3')),
-                    ],
-                    onChanged: (v) => priority = v ?? 2,
-                  ),
-                ],
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: ctrlStart,
-                      decoration: const InputDecoration(labelText: '开始(09:30)'),
+      builder: (c) {
+        return StatefulBuilder(builder: (c2, setD) {
+          return WillPopScope(
+            onWillPop: () async {
+              dialogMounted = false;
+              return true;
+            },
+            child: AlertDialog(
+              title: Text(t == null ? '新建任务' : '编辑任务'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 快速模板按钮行
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () {
+                            ctrlTitle.text = '深度工作块';
+                            ctrlExp.text = '50';
+                            priority = 1;
+                            ctrlLabels.text = '专注';
+                            ctrlProject.text = '工作';
+                            ctrlEstPomos.text = '2';
+                          },
+                          child: const Text('深度工作 50'),
+                        ),
+                        OutlinedButton(
+                          onPressed: () {
+                            ctrlTitle.text = '晨间规划';
+                            ctrlExp.text = '10';
+                            priority = 2;
+                            ctrlLabels.text = '规划';
+                            ctrlProject.text = '日常';
+                          },
+                          child: const Text('晨间规划 10'),
+                        ),
+                        OutlinedButton(
+                          onPressed: () {
+                            ctrlTitle.text = '阅读';
+                            ctrlExp.text = '20';
+                            priority = 2;
+                            ctrlLabels.text = '学习';
+                            ctrlProject.text = '自我提升';
+                          },
+                          child: const Text('阅读 20'),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: ctrlEnd,
-                      decoration: const InputDecoration(labelText: '结束(10:15)'),
+                    const SizedBox(height: 8),
+                    TextField(controller: ctrlTitle, decoration: const InputDecoration(labelText: '标题')),
+                    TextField(controller: ctrlDesc, decoration: const InputDecoration(labelText: '描述')),
+                    Row(
+                      children: [
+                        const Text('优先级：'),
+                        const SizedBox(width: 8),
+                        DropdownButton<int>(
+                          value: priority,
+                          items: const [
+                            DropdownMenuItem(value: 1, child: Text('P1')),
+                            DropdownMenuItem(value: 2, child: Text('P2')),
+                            DropdownMenuItem(value: 3, child: Text('P3')),
+                          ],
+                          onChanged: (v) => setD(() => priority = v ?? 2),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: ctrlExp,
-                      decoration: const InputDecoration(labelText: '预计分钟'),
+                    // ======= 新：滚轮选择时间 =======
+                    Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () async {
+                              final v = await _pickTimeWheel(ctrlStart.text);
+                              if (v != null) setD(() => ctrlStart.text = v);
+                            },
+                            child: AbsorbPointer(
+                              child: TextField(
+                                controller: ctrlStart,
+                                readOnly: true,
+                                decoration: const InputDecoration(
+                                  labelText: '开始(可点选择)',
+                                  suffixIcon: Icon(Icons.access_time),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () async {
+                              final v = await _pickTimeWheel(ctrlEnd.text);
+                              if (v != null) setD(() => ctrlEnd.text = v);
+                            },
+                            child: AbsorbPointer(
+                              child: TextField(
+                                controller: ctrlEnd,
+                                readOnly: true,
+                                decoration: const InputDecoration(
+                                  labelText: '结束(可点选择)',
+                                  suffixIcon: Icon(Icons.access_time),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: ctrlExp,
+                            decoration: const InputDecoration(labelText: '预计分钟'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: ctrlProject,
+                            decoration: const InputDecoration(labelText: '项目'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    TextField(controller: ctrlLabels, decoration: const InputDecoration(labelText: '标签(逗号分隔)')),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: ctrlEstPomos,
+                      decoration: const InputDecoration(labelText: '预计番茄数(可选)'),
                       keyboardType: TextInputType.number,
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: ctrlProject,
-                      decoration: const InputDecoration(labelText: '项目'),
-                    ),
-                  ),
-                ],
-              ),
-              TextField(controller: ctrlLabels, decoration: const InputDecoration(labelText: '标签(逗号分隔)')),
-              const SizedBox(height: 8),
-              TextField(
-                controller: ctrlEstPomos,
-                decoration: const InputDecoration(labelText: '预计番茄数(可选)'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  OutlinedButton(onPressed: applyTemplate, child: const Text('更多模板')),
-                  const SizedBox(width: 8),
-                  OutlinedButton(
-                    onPressed: () async {
-                      final nameCtrl =
-                          TextEditingController(text: ctrlTitle.text.isEmpty ? '我的模板' : ctrlTitle.text);
-                      final ok = await showDialog<bool>(
-                        context: context,
-                        builder: (c2) => AlertDialog(
-                          title: const Text('保存为模板'),
-                          content: TextField(
-                            controller: nameCtrl,
-                            decoration: const InputDecoration(labelText: '模板名'),
-                          ),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(c2, false), child: const Text('取消')),
-                            FilledButton(onPressed: () => Navigator.pop(c2, true), child: const Text('保存')),
-                          ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        OutlinedButton(onPressed: applyTemplate, child: const Text('更多模板')),
+                        const SizedBox(width: 8),
+                        OutlinedButton(
+                          onPressed: () async {
+                            final nameCtrl = TextEditingController(
+                              text: ctrlTitle.text.isEmpty ? '我的模板' : ctrlTitle.text,
+                            );
+                            final ok = await showDialog<bool>(
+                              context: context,
+                              builder: (c2) => AlertDialog(
+                                title: const Text('保存为模板'),
+                                content: TextField(
+                                  controller: nameCtrl,
+                                  decoration: const InputDecoration(labelText: '模板名'),
+                                ),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(c2, false), child: const Text('取消')),
+                                  FilledButton(onPressed: () => Navigator.pop(c2, true), child: const Text('保存')),
+                                ],
+                              ),
+                            );
+                            if (!mounted || !dialogMounted) return;
+                            if (ok == true) {
+                              final tmpTask = Task(
+                                title: ctrlTitle.text,
+                                description: ctrlDesc.text.isEmpty ? null : ctrlDesc.text,
+                                priority: priority,
+                                startTime: ctrlStart.text.isEmpty ? null : ctrlStart.text,
+                                endTime: ctrlEnd.text.isEmpty ? null : ctrlEnd.text,
+                                expectedMinutes: int.tryParse(ctrlExp.text),
+                                labels: ctrlLabels.text.isEmpty ? null : ctrlLabels.text,
+                                project: ctrlProject.text.isEmpty ? null : ctrlProject.text,
+                                date: _date,
+                                estimatePomos: int.tryParse(ctrlEstPomos.text),
+                              );
+                              await TemplateDao.saveTemplate(nameCtrl.text, tmpTask);
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context)
+                                  .showSnackBar(const SnackBar(content: Text('已保存为模板')));
+                            }
+                          },
+                          child: const Text('保存为模板'),
                         ),
-                      );
-                      if (!mounted) return;
-                      if (ok == true) {
-                        final tmpTask = Task(
-                          title: ctrlTitle.text,
-                          description: ctrlDesc.text.isEmpty ? null : ctrlDesc.text,
-                          priority: priority,
-                          startTime: ctrlStart.text.isEmpty ? null : ctrlStart.text,
-                          endTime: ctrlEnd.text.isEmpty ? null : ctrlEnd.text,
-                          expectedMinutes: int.tryParse(ctrlExp.text),
-                          labels: ctrlLabels.text.isEmpty ? null : ctrlLabels.text,
-                          project: ctrlProject.text.isEmpty ? null : ctrlProject.text,
-                          date: _date,
-                          estimatePomos: int.tryParse(ctrlEstPomos.text),
-                        );
-                        await TemplateDao.saveTemplate(nameCtrl.text, tmpTask);
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context)
-                            .showSnackBar(const SnackBar(content: Text('已保存为模板')));
-                      }
-                    },
-                    child: const Text('保存为模板'),
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('保存')),
-        ],
-      ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
+                FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('保存')),
+              ],
+            ),
+          );
+        });
+      },
     );
 
     if (!mounted) return;
@@ -369,63 +462,62 @@ class _TasksPageState extends State<TasksPage> {
   }
 
   Future<void> _exportDialog() async {
-  final choice = await showDialog<String>(
-    context: context,
-    builder: (c) => SimpleDialog(
-      title: const Text('导出已完成任务'),
-      children: [
-        SimpleDialogOption(
-          child: const Text('近 7 天'),
-          onPressed: () => Navigator.pop(c, '7'),
-        ),
-        SimpleDialogOption(
-          child: const Text('近 30 天'),
-          onPressed: () => Navigator.pop(c, '30'),
-        ),
-        SimpleDialogOption(
-          child: const Text('本月'),
-          onPressed: () => Navigator.pop(c, 'month'),
-        ),
-      ],
-    ),
-  );
-  if (!mounted) return;
-  if (choice == null) return;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        title: const Text('导出已完成任务'),
+        children: [
+          SimpleDialogOption(
+            child: const Text('近 7 天'),
+            onPressed: () => Navigator.pop(c, '7'),
+          ),
+          SimpleDialogOption(
+            child: const Text('近 30 天'),
+            onPressed: () => Navigator.pop(c, '30'),
+          ),
+          SimpleDialogOption(
+            child: const Text('本月'),
+            onPressed: () => Navigator.pop(c, 'month'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == null) return;
 
-  DateTime from, to;
-  final now = DateTime.now();
-  if (choice == 'month') {
-    from = DateTime(now.year, now.month, 1);
-    to = DateTime(now.year, now.month + 1, 0);
-  } else {
-    final days = int.parse(choice);
-    from = DateTime(now.year, now.month, now.day).subtract(Duration(days: days - 1));
-    to = DateTime(now.year, now.month, now.day);
+    DateTime from, to;
+    final now = DateTime.now();
+    if (choice == 'month') {
+      from = DateTime(now.year, now.month, 1);
+      to = DateTime(now.year, now.month, 0 + DateTime(now.year, now.month + 1, 0).day);
+    } else {
+      final days = int.parse(choice);
+      from = DateTime(now.year, now.month, now.day).subtract(Duration(days: days - 1));
+      to = DateTime(now.year, now.month, now.day);
+    }
+
+    final tasks = await TaskDao.completedInRange(from, to);
+    final buf = StringBuffer()
+      ..writeln('# 已完成任务导出')
+      ..writeln('时间范围：${DateFormat('yyyy-MM-dd').format(from)} ~ ${DateFormat('yyyy-MM-dd').format(to)}')
+      ..writeln()
+      ..writeln('| 日期 | 标题 | 项目 | 时段 | 笔记 |')
+      ..writeln('|---|---|---|---|---|');
+
+    for (final t in tasks) {
+      final slot =
+          (t.startTime != null || t.endTime != null) ? '${t.startTime ?? "--"}-${t.endTime ?? "--"}' : '';
+      final note = (t.note ?? '').replaceAll('\n', '<br/>');
+      buf.writeln('| ${t.date} | ${t.title} | ${t.project ?? ""} | $slot | ${note.isEmpty ? "" : note} |');
+    }
+
+    final dir = await getTemporaryDirectory();
+    final file = File(
+        '${dir.path}/tasks_export_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.md');
+    await file.writeAsString(buf.toString());
+
+    await Share.shareXFiles([XFile(file.path)], text: '完成任务导出');
   }
-
-  final tasks = await TaskDao.completedInRange(from, to);
-  final buf = StringBuffer()
-    ..writeln('# 已完成任务导出')
-    ..writeln('时间范围：${DateFormat('yyyy-MM-dd').format(from)} ~ ${DateFormat('yyyy-MM-dd').format(to)}')
-    ..writeln()
-    ..writeln('| 日期 | 标题 | 项目 | 时段 | 笔记 |')
-    ..writeln('|---|---|---|---|---|');
-
-  for (final t in tasks) {
-    final slot = (t.startTime != null || t.endTime != null) ? '${t.startTime ?? "--"}-${t.endTime ?? "--"}' : '';
-    final note = (t.note ?? '').replaceAll('\n', '<br/>');
-    buf.writeln('| ${t.date} | ${t.title} | ${t.project ?? ""} | $slot | ${note.isEmpty ? "" : note} |');
-  }
-
-  final dir = await getTemporaryDirectory();
-  final file = File('${dir.path}/tasks_export_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.md');
-  await file.writeAsString(buf.toString());
-
-  await Share.shareXFiles([XFile(file.path)], text: '完成任务导出');
-}
-
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -502,7 +594,7 @@ class _TasksPageState extends State<TasksPage> {
                 ),
               ),
 
-              // 各分组任务
+              // 各分组任务（美化：卡片 + 柔和背景）
               ...groups.entries.map((e) {
                 final title = e.key;
                 final items = e.value;
@@ -514,7 +606,7 @@ class _TasksPageState extends State<TasksPage> {
                       child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     ),
                     ...items.map(_buildTile),
-                    const Divider(height: 24),
+                    const SizedBox(height: 8),
                   ],
                 );
               }),
@@ -530,31 +622,42 @@ class _TasksPageState extends State<TasksPage> {
     final labels =
         (t.labels ?? '').split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     final priColor = [null, Colors.red, Colors.orange, Colors.blue][t.priority];
+    final baseColor = colorFromString(t.project ?? t.title);
+    final bg = baseColor.withValues(alpha: .06);
+    final border = baseColor.withValues(alpha: .20);
 
-    return InkWell(
-      onLongPress: () => setState(() {
-        if (t.id != null) {
-          if (sel) {
-            _selected.remove(t.id);
-          } else {
-            _selected.add(t.id!);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onLongPress: () => setState(() {
+          if (t.id != null) {
+            if (sel) {
+              _selected.remove(t.id);
+            } else {
+              _selected.add(t.id!);
+            }
           }
-        }
-      }),
-      onTap: _selected.isEmpty
-          ? () => _editTask(t)
-          : () => setState(() {
-                if (t.id != null) {
-                  if (sel) {
-                    _selected.remove(t.id!);
-                  } else {
-                    _selected.add(t.id!);
+        }),
+        onTap: _selected.isEmpty
+            ? () => _editTask(t)
+            : () => setState(() {
+                  if (t.id != null) {
+                    if (sel) {
+                      _selected.remove(t.id!);
+                    } else {
+                      _selected.add(t.id!);
+                    }
                   }
-                }
-              }),
-      child: Container(
-        color: sel ? Theme.of(context).colorScheme.primary.withValues(alpha: .08) : null,
+                }),
         child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           leading: Checkbox(
             value: t.done,
             onChanged: (_) async {
@@ -575,7 +678,10 @@ class _TasksPageState extends State<TasksPage> {
                 child: Text(
                   t.title,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(decoration: t.done ? TextDecoration.lineThrough : null),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    decoration: t.done ? TextDecoration.lineThrough : null,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -591,14 +697,23 @@ class _TasksPageState extends State<TasksPage> {
             ],
           ),
           subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4),
+            padding: const EdgeInsets.only(top: 6),
             child: Wrap(
               runSpacing: 6,
               spacing: 6,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 if (t.startTime != null || t.endTime != null)
-                  Chip(label: Text('${t.startTime ?? "--"}-${t.endTime ?? "--"}')),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: border),
+                      borderRadius: BorderRadius.circular(10),
+                      color: Colors.white.withValues(alpha: .65),
+                    ),
+                    child: Text('${t.startTime ?? "--"} - ${t.endTime ?? "--"}',
+                        style: const TextStyle(letterSpacing: 1)),
+                  ),
                 if (labels.isNotEmpty)
                   ...labels.map((e) => Chip(
                         label: Text('#$e', style: const TextStyle(color: Colors.white)),

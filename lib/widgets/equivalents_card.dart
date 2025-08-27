@@ -8,6 +8,8 @@ import 'package:share_plus/share_plus.dart';
 import '../settings/equivalents_model.dart';
 import '../settings/equivalents_store.dart';
 import '../pages/settings_equivalents_page.dart';
+import 'package:flutter/rendering.dart'; // ← 新增，用于 RenderRepaintBoundary
+
 
 class EquivalentsCard extends StatefulWidget {
   final int todayMinutes;

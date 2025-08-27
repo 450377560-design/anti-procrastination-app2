@@ -47,7 +47,7 @@ class _FocusPageState extends State<FocusPage> {
   }
 
   Future<void> _startSession() async {
-    // 关键修复：写入真实计划分钟（不再硬编码 25）
+    // 写入真实计划分钟
     _sessionId = await FocusDao.startSession(
       plannedMinutes: widget.minutes,
       taskId: widget.task?.id,
@@ -198,41 +198,76 @@ class _FocusPageState extends State<FocusPage> {
   @override
   Widget build(BuildContext context) {
     final taskTitle = widget.task?.title;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(taskTitle == null ? '专注' : '专注：$taskTitle'),
-        actions: [
-          IconButton(
-            icon: Icon(_paused ? Icons.play_arrow : Icons.pause),
-            onPressed: _togglePause,
+
+    // 深色样式：黑底、白字、浅色状态栏图标
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          iconTheme: const IconThemeData(color: Colors.white),
+          systemOverlayStyle: SystemUiOverlayStyle.light,
+          title: Text(
+            taskTitle == null ? '专注' : '专注：$taskTitle',
+            style: const TextStyle(color: Colors.white),
           ),
-          IconButton(
-            icon: const Icon(Icons.stop),
-            onPressed: _stop,
-          ),
-        ],
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(_fmt(_remaining), style: const TextStyle(fontSize: 64, fontFeatures: [FontFeature.tabularFigures()])),
-            const SizedBox(height: 16),
-            if (_restAccum > 0)
-              Text('休息累计：${(_restAccum ~/ 60).toString().padLeft(2, '0')}:${(_restAccum % 60).toString().padLeft(2, '0')}'),
-            const SizedBox(height: 32),
-            FilledButton.icon(
+          actions: [
+            IconButton(
+              icon: Icon(_paused ? Icons.play_arrow : Icons.pause, color: Colors.white),
               onPressed: _togglePause,
-              icon: Icon(_paused ? Icons.play_arrow : Icons.pause),
-              label: Text(_paused ? '继续' : '暂停'),
             ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
+            IconButton(
+              icon: const Icon(Icons.stop, color: Colors.white),
               onPressed: _stop,
-              icon: const Icon(Icons.stop),
-              label: const Text('停止'),
             ),
           ],
+        ),
+        body: DefaultTextStyle.merge(
+          style: const TextStyle(color: Colors.white),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  _fmt(_remaining),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 120, // 倒计时更醒目
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 2,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                if (_restAccum > 0)
+                  Text(
+                    '休息累计：${(_restAccum ~/ 60).toString().padLeft(2, '0')}:${(_restAccum % 60).toString().padLeft(2, '0')}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 20, // 放大
+                    ),
+                  ),
+                const SizedBox(height: 32),
+                FilledButton.icon(
+                  onPressed: _togglePause,
+                  icon: Icon(_paused ? Icons.play_arrow : Icons.pause),
+                  label: Text(_paused ? '继续' : '暂停'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _stop,
+                  icon: const Icon(Icons.stop),
+                  label: const Text('停止'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white54),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

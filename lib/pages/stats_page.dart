@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../db/dao_focus.dart';
 import '../db/dao_task.dart';
+import '../widgets/equivalents_card.dart';
 
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key});
@@ -21,71 +22,53 @@ class _StatsPageState extends State<StatsPage> {
   }
 
   Future<Map<String, dynamic>> _load() async {
+    // 今日、本周时间范围
     final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1)).subtract(const Duration(seconds: 1));
+    final weekStart = todayStart.subtract(Duration(days: todayStart.weekday - 1));
+    final weekEnd = weekStart.add(const Duration(days: 7)).subtract(const Duration(seconds: 1));
 
-    // 常用时间点
-    final startToday = DateTime(now.year, now.month, now.day);
-    final startTomorrow = startToday.add(const Duration(days: 1));
-    final start7 = startToday.subtract(const Duration(days: 6));
-    final monthStart = DateTime(now.year, now.month, 1);
-    final nextMonthStart = DateTime(now.year, now.month + 1, 1);
-    final monthEnd = nextMonthStart.subtract(const Duration(days: 1));
-
-    // 近 7 天/今日的会话
-    final todaySessions = await FocusDao.loadSessionsBetween(
-      startToday.millisecondsSinceEpoch,
-      startTomorrow.millisecondsSinceEpoch,
-    );
-    final weekSessions = await FocusDao.loadSessionsBetween(
-      start7.millisecondsSinceEpoch,
-      startTomorrow.millisecondsSinceEpoch,
-    );
-
-    int _sumMinutes(List<Map<String, dynamic>> rows) {
-      int sum = 0;
+    // 今日/本周 专注分钟 & 会话
+    int _sumMinutes(List<Map<String, Object?>> rows) {
+      int total = 0;
       for (final r in rows) {
-        final st = r['start_ts'] as int?;
-        final et = r['end_ts'] as int?;
-        if (st != null && et != null && et > st) {
-          sum += ((et - st) ~/ 60000);
-        }
+        final m = (r['minutes'] as int?) ?? 0;
+        total += m;
       }
-      return sum;
+      return total;
     }
 
+    final todaySessions = await FocusDao.loadSessionsBetween(todayStart, todayEnd);
+    final weekSessions = await FocusDao.loadSessionsBetween(weekStart, weekEnd);
     final focusTodayMin = _sumMinutes(todaySessions);
     final focusWeekMin = _sumMinutes(weekSessions);
 
-    // 今日休息
-    final restSecToday = await FocusDao.restSecondsBetween(
-      startToday.millisecondsSinceEpoch,
-      startTomorrow.millisecondsSinceEpoch,
-    );
+    // 今日中断次数
+    final todayInter = await FocusDao.loadInterruptionsBetween(todayStart, todayEnd);
+    final interruptToday = todayInter.length;
 
-    // 近 7 天打断分布 + 今日打断次数
-    final interRows7 = await FocusDao.loadInterruptionsBetween(
-      start7.millisecondsSinceEpoch,
-      startTomorrow.millisecondsSinceEpoch,
+    // 今日休息时长（秒）
+    final restSecToday = await FocusDao.restSecondsBetween(todayStart, todayEnd);
+
+    // 近 7 天打断分布
+    final interAll = await FocusDao.loadInterruptionsBetween(
+      todayStart.subtract(const Duration(days: 6)),
+      todayEnd,
     );
     final interMap7 = <String, int>{};
-    for (final r in interRows7) {
-      interMap7[r['reason'] as String] = (r['cnt'] as int?) ?? 0;
-    }
-    int interruptToday = 0;
-    final interRowsToday = await FocusDao.loadInterruptionsBetween(
-      startToday.millisecondsSinceEpoch,
-      startTomorrow.millisecondsSinceEpoch,
-    );
-    for (final r in interRowsToday) {
-      interruptToday += (r['cnt'] as int?) ?? 0;
+    for (final it in interAll) {
+      final reason = (it['reason'] as String?)?.trim();
+      final key = (reason == null || reason.isEmpty) ? '未填写原因' : reason;
+      interMap7[key] = (interMap7[key] ?? 0) + 1;
     }
 
-    // 近 7 天专注分钟（柱状图）
+    // 近 7 天专注分钟（柱状）
     final last7 = <int>[];
-    for (int i = 0; i < 7; i++) {
-      final d0 = DateTime(start7.year, start7.month, start7.day + i);
-      final d1 = d0.add(const Duration(days: 1));
-      final rows = await FocusDao.loadSessionsBetween(d0.millisecondsSinceEpoch, d1.millisecondsSinceEpoch);
+    for (int i = 6; i >= 0; i--) {
+      final d0 = DateTime(now.year, now.month, now.day).subtract(Duration(days: i));
+      final d1 = d0.add(const Duration(days: 1)).subtract(const Duration(milliseconds: 1));
+      final rows = await FocusDao.loadSessionsBetween(d0, d1);
       last7.add(_sumMinutes(rows));
     }
 
@@ -96,18 +79,22 @@ class _StatsPageState extends State<StatsPage> {
     // 本月任务日历 + 完成率
     String fmt(DateTime x) =>
         '${x.year.toString().padLeft(4, '0')}-${x.month.toString().padLeft(2, '0')}-${x.day.toString().padLeft(2, '0')}';
+    final monthStart = DateTime(now.year, now.month, 1);
+    final monthEnd = DateTime(now.year, now.month + 1, 0);
     final calendar = await TaskDao.countsByDateRange(fmt(monthStart), fmt(monthEnd));
 
-    // 今日 & 近 7 日完成率
-    final todayKey = fmt(startToday);
-    final todayTotal = calendar[todayKey]?['total'] ?? 0;
-    final todayDone = calendar[todayKey]?['done'] ?? 0;
+    // 今日/近 7 日完成率
+    final todayCounts = await TaskDao.countsByDateRange(fmt(todayStart), fmt(todayStart));
+    final todayKey = fmt(todayStart);
+    final todayTotal = (todayCounts[todayKey]?['total'] as int?) ?? 0;
+    final todayDone = (todayCounts[todayKey]?['done'] as int?) ?? 0;
 
+    final sevenStart = todayStart.subtract(const Duration(days: 6));
+    final sevenCounts = await TaskDao.countsByDateRange(fmt(sevenStart), fmt(todayStart));
     int total7 = 0, done7 = 0;
-    for (int i = 0; i < 7; i++) {
-      final key = fmt(DateTime(start7.year, start7.month, start7.day + i));
-      total7 += calendar[key]?['total'] ?? 0;
-      done7 += calendar[key]?['done'] ?? 0;
+    for (final v in sevenCounts.values) {
+      total7 += (v['total'] as int?) ?? 0;
+      done7 += (v['done'] as int?) ?? 0;
     }
 
     return {
@@ -174,20 +161,33 @@ class _StatsPageState extends State<StatsPage> {
                 _restCard((m['restToday'] as int?) ?? 0),
                 const SizedBox(height: 12),
 
+                // 把专注时间换算成具象等价物（可配置）
+                EquivalentsCard(
+                  todayMinutes: (m['focusTodayMin'] as int?) ?? 0,
+                  weekMinutes:  (m['focusWeekMin']  as int?) ?? 0,
+                  monthMinutes: null, // 如需本月/累计可在 DAO 接口补充后填入
+                  allMinutes:   null,
+                  title: '把专注时间换算成…',
+                ),
+                const SizedBox(height: 12),
+
                 // 近 7 天专注分钟柱状图
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(12),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const Text('近 7 天专注分钟', style: TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
-                      _bar7((m['last7'] as List<int>? ?? List.filled(7, 0))),
-                    ]),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('近 7 天专注时长（分钟）', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 12),
+                        _bar7Days((m['last7'] as List<int>?) ?? const []),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
 
-                // 打断饼图（彩色）
+                // 近 7 天打断分布（多色饼图 + 图例）
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(12),
@@ -205,15 +205,14 @@ class _StatsPageState extends State<StatsPage> {
                   child: Padding(
                     padding: const EdgeInsets.all(12),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(
-                        '本月任务日历（已完成/总数）  ${DateFormat('yyyy年MM月').format(m['monthStart'] as DateTime)}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                      const Text('本月任务完成日历', style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
-                      _calendarMonth(m['monthStart'] as DateTime, (m['calendar'] as Map<String, Map<String, int>>?) ?? const {}),
+                      _calendarMonth((m['monthStart'] as DateTime?) ?? DateTime.now(),
+                          (m['calendar'] as Map<String, Map<String, int>>?) ?? const {}),
                     ]),
                   ),
                 ),
+                const SizedBox(height: 12),
               ],
             ),
           ),
@@ -222,36 +221,36 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  // ======= 小部件们 =======
-
-  
   Widget _focusCard(String title, int minutes, int sessions, int? interrupt) {
-  String mm(int x) => '${(x ~/ 60).toString().padLeft(2, '0')}小时${(x % 60).toString().padLeft(2, '0')}分钟';
-  return Card(
-    child: ListTile(
-      leading: const Icon(Icons.timer_outlined),
-      title: Text(title),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('专注：${mm(minutes)}'),  // ← 修正
-          Text('完成次数：$sessions'),
-          if (interrupt != null) Text('今日打断：$interrupt 次'),
-        ],
-      ),
-    ),
-  );
-}
-
-
-
-  Widget _rateCard(String title, int done, int total) {
-    final pct = total == 0 ? 0 : ((done * 100.0) / total).round();
+    String mm(int x) => '${(x ~/ 60).toString().padLeft(2, '0')}小时${(x % 60).toString().padLeft(2, '0')}分钟';
     return Card(
       child: ListTile(
-        leading: const Icon(Icons.task_alt_outlined),
+        leading: const Icon(Icons.timer_outlined),
         title: Text(title),
-        subtitle: Text('$done / $total  ·  $pct%'),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('专注：${mm(minutes)}'),  // ← 修正
+            Text('完成次数：$sessions'),
+            if (interrupt != null) Text('今日打断：$interrupt 次'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _rateCard(String title, int done, int total) {
+    final pct = total == 0 ? 0.0 : (done / total);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          LinearProgressIndicator(value: pct),
+          const SizedBox(height: 6),
+          Text('$done / $total（${(pct * 100).toStringAsFixed(0)}%）'),
+        ]),
       ),
     );
   }
@@ -272,45 +271,57 @@ class _StatsPageState extends State<StatsPage> {
     final txt = '${h.toString().padLeft(2, '0')}小时${m.toString().padLeft(2, '0')}分钟';
     return Card(
       child: ListTile(
-        leading: const Icon(Icons.free_breakfast),
+        leading: const Icon(Icons.self_improvement_outlined),
         title: const Text('今日休息时长'),
         subtitle: Text(txt),
       ),
     );
   }
 
-  Widget _bar7(List<int> mins) {
-    final groups = <BarChartGroupData>[];
-    for (int i = 0; i < 7; i++) {
-      groups.add(BarChartGroupData(
-        x: i,
-        barRods: [BarChartRodData(toY: mins[i].toDouble())],
-      ));
-    }
-    return SizedBox(
-      height: 180,
-      child: BarChart(BarChartData(
-        barGroups: groups,
-        gridData: const FlGridData(show: true),
-        borderData: FlBorderData(show: false),
-        titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 32)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) {
-                const labels = ['一', '二', '三', '四', '五', '六', '日'];
-                return Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(labels[value.toInt().clamp(0, 6)]),
-                );
-              },
+  Widget _bar7Days(List<int> mins) {
+    final data = mins.length == 7 ? mins : List<int>.filled(7, 0);
+    final maxV = (data.isEmpty ? 0 : data.reduce((a, b) => a > b ? a : b)).clamp(0, 120);
+    return AspectRatio(
+      aspectRatio: 1.6,
+      child: BarChart(
+        BarChartData(
+          gridData: FlGridData(show: false),
+          borderData: FlBorderData(show: false),
+          titlesData: FlTitlesData(
+            leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 26,
+                getTitlesWidget: (value, meta) {
+                  final labels = ['-6', '-5', '-4', '-3', '-2', '-1', '今天'];
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(labels[value.toInt().clamp(0, 6)]),
+                  );
+                },
+              ),
             ),
           ),
+          barGroups: [
+            for (int i = 0; i < 7; i++)
+              BarChartGroupData(
+                x: i,
+                barRods: [
+                  BarChartRodData(
+                    toY: data[i].toDouble(),
+                    width: 16,
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ],
+              )
+          ],
+          maxY: (maxV == 0 ? 60 : (maxV * 1.2)).toDouble(),
         ),
-      )),
+      ),
     );
   }
 
@@ -357,14 +368,20 @@ class _StatsPageState extends State<StatsPage> {
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        ...List.generate(entries.length, (i) {
-          final e = entries[i];
-          final pct = ((e.value * 100) / total).round();
+        const SizedBox(height: 10),
+        // 图例
+        ...entries.map((e) {
+          final pct = ((e.value * 100) / total).toStringAsFixed(0);
           return ListTile(
             dense: true,
-            visualDensity: const VisualDensity(vertical: -3),
-            leading: Container(width: 12, height: 12, decoration: BoxDecoration(color: _palette[i % _palette.length], shape: BoxShape.circle)),
+            leading: Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                color: _palette[entries.indexOf(e) % _palette.length],
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
             title: Text(e.key),
             trailing: Text('${e.value} · $pct%'),
           );
@@ -379,16 +396,28 @@ class _StatsPageState extends State<StatsPage> {
     final daysInMonth = nextMonthStart.subtract(const Duration(days: 1)).day;
 
     // 顶部：一到日
-    const wd = ['一', '二', '三', '四', '五', '六', '日'];
+    final wlabels = ['一', '二', '三', '四', '五', '六', '日'];
+    final header = Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: wlabels
+          .map((e) => Expanded(
+                child: Center(child: Text(e, style: const TextStyle(fontWeight: FontWeight.bold))),
+              ))
+          .toList(),
+    );
 
-    final cells = <Widget>[];
+    // 单元格们
+    List<Widget> cells = [];
+    // 补足月初前的空白
     for (int i = 1; i < firstWeekday; i++) {
-      cells.add(const SizedBox());
+      cells.add(Container());
     }
-    String keyOf(int day) =>
-        '${monthStart.year.toString().padLeft(4, '0')}-${monthStart.month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
 
-    for (int d = 1; d <= daysInMonth; d++) {
+    String keyOf(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+    for (int day = 1; day <= daysInMonth; day++) {
+      final d = DateTime(monthStart.year, monthStart.month, day);
       final key = keyOf(d);
       final info = counts[key];
       final total = info?['total'] ?? 0;
@@ -403,31 +432,30 @@ class _StatsPageState extends State<StatsPage> {
 
       cells.add(Container(
         margin: const EdgeInsets.all(3),   // 稍微缩小，给高度留余量
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
           color: color,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.black12),
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('$d', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            Text(day.toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 2),
-            Text('$done/$total', style: const TextStyle(fontSize: 10)), // 字号调小，避免溢出
+            Text(
+              total == 0 ? '-' : '完成 $done/$total',
+              style: const TextStyle(fontSize: 12),
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ),
       ));
     }
-    while (cells.length % 7 != 0) {
-      cells.add(const SizedBox());
-    }
 
     return Column(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [for (final s in wd) Expanded(child: Center(child: Text(s)))],
-        ),
+        header,
         const SizedBox(height: 6),
         // 关键：设置 childAspectRatio < 1，让单元格更高，避免 Column 溢出
         GridView.count(

@@ -1,22 +1,22 @@
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart'; // ← 补这行
 import '../models/task.dart';
-import 'app_db.dart';
+import 'package:anti_procrastination_app2/db/app_db.dart';
 
 class TemplateDao {
   static Future<int> saveTemplate(String name, Task task) async {
-    final db = await AppDB.db;
+    final db = await AppDb.db;
     final payload = jsonEncode(task.toMap()..remove('id'));
     return db.insert('templates', {'name': name, 'payload': payload});
   }
 
   static Future<List<Map<String, dynamic>>> list() async {
-    final db = await AppDB.db;
+    final db = await AppDb.db;
     return db.query('templates', orderBy: 'id DESC');
   }
 
   static Future<Task> apply(int id, String date) async {
-    final db = await AppDB.db;
+    final db = await AppDb.db;
     final row = (await db.query('templates', where: 'id=?', whereArgs: [id])).first;
     final map = Map<String, dynamic>.from(jsonDecode(row['payload'] as String));
     map['date'] = date;
@@ -25,13 +25,13 @@ class TemplateDao {
   }
 
   static Future<int> delete(int id) async {
-    final db = await AppDB.db;
+    final db = await AppDb.db;
     return db.delete('templates', where: 'id=?', whereArgs: [id]);
   }
 
   // 首次启动时补充一批默认模板（不存在时才插入）
   static Future<void> seedDefaults(String date) async {
-    final db = await AppDB.db;
+    final db = await AppDb.db;
     final cnt = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM templates')) ?? 0;
     if (cnt > 0) return;
 

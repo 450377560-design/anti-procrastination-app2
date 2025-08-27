@@ -1,29 +1,28 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
-// 你的页面：保持路径一致
+// 你的页面（保持与原工程一致的相对路径）
 import 'focus_page.dart';
 import 'pages/tasks_page.dart';
 import 'pages/stats_page.dart';
 
-// 版本号（CI 里传入 --dart-define=BUILD_NAME=...，这里做兜底）
+// CI 会通过 --dart-define 传入构建号，这里兜底
 const String kBuildName =
     String.fromEnvironment('BUILD_NAME', defaultValue: 'dev');
 
 void main() {
-  // 确保引擎初始化
+  // 关键一步：在使用任何插件/平台通道前，先初始化引擎，避免首帧被卡住
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 全局兜底，防止未捕获异常导致白屏/停留在启动页
+  // 兜底，防止未捕获异常影响渲染
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.dumpErrorToConsole(details);
-    // 忽略掉让 UI 继续运行
   };
+
   runZonedGuarded(() {
     runApp(const MyApp());
-  }, (e, s) {
-    // 生产环境可上报，先打印即可
-    // debugPrint('Uncaught in zone: $e\n$s');
+  }, (error, stack) {
+    // 这里可接日志上报；为稳妥起见不做阻断
   });
 }
 
@@ -65,12 +64,24 @@ class _MainShell extends StatefulWidget {
 class _MainShellState extends State<_MainShell> {
   int _index = 0;
 
-  // 提前构建 3 个页，避免切换时再次触发耗时 init
-  late final List<Widget> _pages = <Widget>[
-    const FocusPage(), // 你的专注页
-    const TasksPage(), // 你的任务页
-    const StatsPage(), // 你的统计页
-  ];
+  // 懒加载：首次访问对应 tab 时再创建页面，避免启动期就构建所有较重页面
+  Widget? _focusPage;
+  Widget? _tasksPage;
+  Widget? _statsPage;
+
+  Widget _currentBody() {
+    switch (_index) {
+      case 0:
+        _focusPage ??= const FocusPage();
+        return _focusPage!;
+      case 1:
+        _tasksPage ??= const TasksPage();
+        return _tasksPage!;
+      default:
+        _statsPage ??= const StatsPage();
+        return _statsPage!;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -89,13 +100,7 @@ class _MainShellState extends State<_MainShell> {
           ),
         ],
       ),
-      body: SafeArea(
-        // 用 IndexedStack 保持页状态，避免每次切页重新加载导致“看似卡住”
-        child: IndexedStack(
-          index: _index,
-          children: _pages,
-        ),
-      ),
+      body: SafeArea(child: _currentBody()),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),

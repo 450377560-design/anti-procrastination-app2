@@ -1,7 +1,9 @@
+// lib/focus_page.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+
 import 'db/dao_focus.dart';
 import 'models/task.dart';
 
@@ -15,7 +17,7 @@ class FocusPage extends StatefulWidget {
 }
 
 class _FocusPageState extends State<FocusPage> {
-  late int _remaining;
+  late int _remaining; // 秒
   Timer? _timer;
 
   bool _paused = false;
@@ -23,7 +25,7 @@ class _FocusPageState extends State<FocusPage> {
   int? _sessionId;
 
   // 休息计时
-  int _restAccum = 0; // 当前会话累计休息秒
+  int _restAccum = 0; // 秒
   Timer? _restTimer;
 
   @override
@@ -33,29 +35,6 @@ class _FocusPageState extends State<FocusPage> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     WakelockPlus.enable();
     _startSession();
-    _ping();
-  }
-
-  Future<void> _startSession() async {
-    _sessionId = await FocusDao.startSession(
-      plannedMinutes: widget.minutes,
-      taskId: widget.task?.id,
-    );
-
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) async {
-      if (_paused || _ended) return;
-      if (!mounted) return;
-      setState(() => _remaining--);
-      if (_remaining <= 0 && !_ended) {
-        _ended = true;
-        _timer?.cancel();
-        await FocusDao.finishSession(_sessionId!, completed: true, restSeconds: _restAccum);
-        if (!mounted) return;
-        await _celebrate();
-        if (!mounted) return;
-        Navigator.pop(context);
-      }
-    });
   }
 
   @override
@@ -65,6 +44,34 @@ class _FocusPageState extends State<FocusPage> {
     WakelockPlus.disable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
+  }
+
+  Future<void> _startSession() async {
+    // 关键修复：写入真实计划分钟（不再硬编码 25）
+    _sessionId = await FocusDao.startSession(
+      plannedMinutes: widget.minutes,
+      taskId: widget.task?.id,
+    );
+
+    // 主计时
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) async {
+      if (_paused || _ended) return;
+      if (!mounted) return;
+      setState(() => _remaining--);
+      if (_remaining <= 0 && !_ended) {
+        _ended = true;
+        _timer?.cancel();
+        await FocusDao.finishSession(
+          _sessionId!,
+          completed: true,
+          restSeconds: _restAccum,
+        );
+        if (!mounted) return;
+        await _celebrate();
+        if (!mounted) return;
+        Navigator.pop(context);
+      }
+    });
   }
 
   Future<void> _stop() async {
@@ -77,7 +84,11 @@ class _FocusPageState extends State<FocusPage> {
     _timer?.cancel();
     _restTimer?.cancel();
     if (_sessionId != null) {
-      await FocusDao.finishSession(_sessionId!, completed: false, restSeconds: _restAccum);
+      await FocusDao.finishSession(
+        _sessionId!,
+        completed: false,
+        restSeconds: _restAccum,
+      );
     }
     if (!mounted) return;
     Navigator.pop(context);
@@ -85,7 +96,6 @@ class _FocusPageState extends State<FocusPage> {
 
   Future<void> _togglePause() async {
     setState(() => _paused = !_paused);
-    _ping();
     if (_paused) {
       await _maybeRecordInterruption('暂停');
       _restTimer?.cancel();
@@ -136,15 +146,27 @@ class _FocusPageState extends State<FocusPage> {
                   labelText: '自定义原因（可选）',
                   border: OutlineInputBorder(),
                 ),
+                minLines: 1,
+                maxLines: 3,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Row(
                 children: [
-                  TextButton(onPressed: () => Navigator.pop(c, null), child: const Text('跳过')),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(c, ctrl.text.trim().isEmpty ? fallback : ctrl.text.trim()),
-                    child: const Text('确定'),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(c, fallback),
+                      child: Text('直接记录：$fallback'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () {
+                        final v = ctrl.text.trim();
+                        Navigator.pop(c, v.isEmpty ? fallback : v);
+                      },
+                      child: const Text('确定'),
+                    ),
                   ),
                 ],
               ),
@@ -155,15 +177,7 @@ class _FocusPageState extends State<FocusPage> {
     );
   }
 
-  Future<void> _ping() async {
-    await SystemSound.play(SystemSoundType.click);
-    try { await HapticFeedback.mediumImpact(); } catch (_) {}
-  }
-
-  String _fmt(int s) => '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
-
   Future<void> _celebrate() async {
-    await _ping();
     await showDialog(
       context: context,
       barrierDismissible: true,
@@ -175,39 +189,48 @@ class _FocusPageState extends State<FocusPage> {
     );
   }
 
+  String _fmt(int s) {
+    final m = s ~/ 60;
+    final ss = s % 60;
+    return '${m.toString().padLeft(2, '0')}:${ss.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final taskTitle = widget.task?.title;
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
+      appBar: AppBar(
+        title: Text(taskTitle == null ? '专注' : '专注：$taskTitle'),
+        actions: [
+          IconButton(
+            icon: Icon(_paused ? Icons.play_arrow : Icons.pause),
+            onPressed: _togglePause,
+          ),
+          IconButton(
+            icon: const Icon(Icons.stop),
+            onPressed: _stop,
+          ),
+        ],
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                if (taskTitle != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text('任务：$taskTitle', style: const TextStyle(color: Colors.white70)),
-                  ),
-                Text(_fmt(_remaining),
-                    style: const TextStyle(color: Colors.white, fontSize: 96, fontWeight: FontWeight.w600, letterSpacing: 2)),
-                const SizedBox(height: 24),
-                if (_paused)
-                  Column(
-                    children: [
-                      const Text('休息时间', style: TextStyle(color: Colors.white70)),
-                      Text(_fmt(_restAccum),
-                          style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 8),
-                    ],
-                  ),
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  FilledButton(onPressed: _togglePause, child: Text(_paused ? '继续' : '暂停')),
-                  const SizedBox(width: 12),
-                  FilledButton.tonal(onPressed: _stop, child: const Text('停止')),
-                ]),
-              ]),
+            Text(_fmt(_remaining), style: const TextStyle(fontSize: 64, fontFeatures: [FontFeature.tabularFigures()])),
+            const SizedBox(height: 16),
+            if (_restAccum > 0)
+              Text('休息累计：${(_restAccum ~/ 60).toString().padLeft(2, '0')}:${(_restAccum % 60).toString().padLeft(2, '0')}'),
+            const SizedBox(height: 32),
+            FilledButton.icon(
+              onPressed: _togglePause,
+              icon: Icon(_paused ? Icons.play_arrow : Icons.pause),
+              label: Text(_paused ? '继续' : '暂停'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _stop,
+              icon: const Icon(Icons.stop),
+              label: const Text('停止'),
             ),
           ],
         ),

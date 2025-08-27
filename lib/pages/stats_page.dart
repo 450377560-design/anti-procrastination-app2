@@ -96,6 +96,8 @@ class _StatsPageState extends State<StatsPage> {
       total7 += (v['total'] as int?) ?? 0;
       done7 += (v['done'] as int?) ?? 0;
     }
+    final monthMin = await FocusDao.minutesThisMonth();
+    final allMin   = await FocusDao.minutesAll();
 
     return {
       'focusTodayMin': focusTodayMin,
@@ -117,9 +119,10 @@ class _StatsPageState extends State<StatsPage> {
       'todayTotal': todayTotal,
       'todayDone': todayDone,
       'total7': total7,
-      'done7': done7,
+      'done7': done7, 
+
       'focusMonthMin': monthMin,
-      'focusAllMin': allMin,      
+      'focusAllMin': allMin, 
     };
   }
 

@@ -46,11 +46,30 @@ class _StatsPageState extends State<StatsPage> {
     final inter = await FocusDao.loadInterruptionsBetween(startMs, endMs);
     final interMap = {for (final r in inter) r['reason'] as String: (r['cnt'] as int)};
 
+    
     // 今日任务完成率
     final today = DateFormat('yyyy-MM-dd').format(now);
     final tasksToday = await TaskDao.listByDate(today);
     final doneToday = tasksToday.where((t) => t.done).length;
     final rateToday = tasksToday.isEmpty ? 0 : ((doneToday * 100) / tasksToday.length).round();
+
+    // 今日休息时长
+    final startOfToday = DateTime(now.year, now.month, now.day);
+    final restSec = await FocusDao.restSecondsBetween(
+      startOfToday.millisecondsSinceEpoch,
+      DateTime(now.year, now.month, now.day + 1).millisecondsSinceEpoch,
+    );
+
+    return {
+      'byDay': byDay,
+      'inter': interMap,
+      'rateToday': rateToday,
+      'rateSeries': rateSeries,
+      'calendar': calendar,
+      'streak': streak,
+      'points': points,
+      'restToday': restSec, // ← 新增
+    };
 
     // 近7天任务完成率
     final rate7 = await TaskDao.completionByDay(7);
@@ -110,6 +129,8 @@ class _StatsPageState extends State<StatsPage> {
                   padding: const EdgeInsets.all(16),
                   children: [
                     _streakCard(m!['streak'] as int, m['points'] as int),
+                    const SizedBox(height: 12),
+                    _restCard(m['restToday'] as int),            // ← 新增
                     const SizedBox(height: 12),
                     _sectionTitle('近 7 天专注时长（分钟）'),
                     _barChart(m['byDay'] as Map<String, int>),
@@ -265,22 +286,39 @@ class _StatsPageState extends State<StatsPage> {
     }
     final total = inter.values.fold<int>(0, (a, b) => a + b);
     final entries = inter.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-    return AspectRatio(
-      aspectRatio: 1.6,
-      child: PieChart(
-        PieChartData(
-          sectionsSpace: 2,
-          centerSpaceRadius: 36,
-          sections: [
-            for (final e in entries)
-              PieChartSectionData(
-                value: e.value.toDouble(),
-                title: '${((e.value * 100) / total).round()}%',
-                radius: 60,
-              )
-          ],
+
+    return Column(
+      children: [
+        AspectRatio(
+          aspectRatio: 1.6,
+          child: PieChart(
+            PieChartData(
+              sectionsSpace: 2,
+              centerSpaceRadius: 36,
+              sections: [
+                for (final e in entries)
+                  PieChartSectionData(
+                    value: e.value.toDouble(),
+                    title: '${((e.value * 100) / total).round()}%',
+                    radius: 60,
+                  )
+              ],
+            ),
+          ),
         ),
-      ),
+        const SizedBox(height: 8),
+        // 图例列表：名称 + 次数 + 百分比
+        ...entries.map((e) {
+          final pct = ((e.value * 100) / total).round();
+          return ListTile(
+            dense: true,
+            visualDensity: const VisualDensity(vertical: -3),
+            leading: const Icon(Icons.label_outline),
+            title: Text(e.key),
+            trailing: Text('${e.value} · ${pct}%'),
+          );
+        }),
+      ],
     );
   }
 
@@ -305,6 +343,20 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
+  Widget _restCard(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final txt = '${h.toString().padLeft(2, '0')}小时${m.toString().padLeft(2, '0')}分钟';
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.free_breakfast),
+        title: const Text('今日休息时长'),
+        subtitle: Text(txt),
+      ),
+    );
+  }
+ 
+  
   // 折线图：近 7 天任务完成率（稀疏显示 0/3/6 三个刻度）
   Widget _lineBars(Map<String, int> series) {
     final keys = series.keys.toList();

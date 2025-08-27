@@ -3,21 +3,19 @@ import 'package:sqflite/sqflite.dart';
 import 'package:anti_procrastination_app2/db/app_db.dart';
 
 /// 说明：
-/// - 保留与兼容：startSession 现在既支持「位置参数 minutes」也支持命名参数 plannedMinutes，
-///   这样你现有的 focus_page.dart 不用改；
-/// - finishSession 兼容可选命名参数 restSeconds（你的代码里有传），会自动累加到休息表；
-/// - 聚合接口补齐：minutesThisMonth / minutesAll 用于统计页“等价卡片”本月/累计；
+/// - startSession 同时兼容两种调用：startSession(25) 或 startSession(plannedMinutes: 25, taskId: 1)
+/// - finishSession 兼容可选参数 restSeconds（你的 focus_page.dart 正在传）
+/// - 补齐 minutesThisMonth / minutesAll，供统计页“等价卡片”使用
 class FocusDao {
-  // ------------------- 写入类接口（供专注页调用） -------------------
+  // ------------------- 写入类接口 -------------------
 
   /// 开始一次专注；返回 sessionId
-  /// 兼容两种用法：
-  ///   startSession(25) 或 startSession(plannedMinutes: 25, taskId: 1)
-  static Future<int> startSession([int? minutes, {
+  /// 兼容：startSession(25) 或 startSession(plannedMinutes: 25, taskId: 1)
+  static Future<int> startSession([int? minutes], {
     int? plannedMinutes,
     int? taskId,
     DateTime? start,
-  }]) async {
+  }) async {
     final db = await AppDb.db;
     await _ensureTables(db);
     final now = (start ?? DateTime.now()).millisecondsSinceEpoch;
@@ -31,7 +29,7 @@ class FocusDao {
   }
 
   /// 结束一次专注；completed=true 代表“完成”，false 代表“中止/打断”
-  /// 兼容可选参数 restSeconds：若传入则同时记入休息统计
+  /// 兼容：restSeconds 传入时会记入休息统计
   static Future<void> finishSession(
     int sessionId, {
     required bool completed,
@@ -41,19 +39,20 @@ class FocusDao {
     final db = await AppDb.db;
     await _ensureTables(db);
 
-    // 读取 start_ts / planned_minutes 做兜底
-    final rows = await db.query('focus_sessions',
-        columns: ['start_ts', 'planned_minutes'],
-        where: 'id=?',
-        whereArgs: [sessionId]);
+    final rows = await db.query(
+      'focus_sessions',
+      columns: ['start_ts', 'planned_minutes'],
+      where: 'id=?',
+      whereArgs: [sessionId],
+    );
     if (rows.isEmpty) return;
 
-    final mStart = (rows.first['start_ts'] as int?) ?? DateTime.now().millisecondsSinceEpoch;
+    final mStart  = (rows.first['start_ts'] as int?) ?? DateTime.now().millisecondsSinceEpoch;
     final planned = (rows.first['planned_minutes'] as int?) ?? 0;
 
-    final endMs = (end ?? DateTime.now()).millisecondsSinceEpoch;
+    final endMs   = (end ?? DateTime.now()).millisecondsSinceEpoch;
     final diffMin = ((endMs - mStart) / 60000).round();
-    final actual = diffMin > 0 ? diffMin : (planned > 0 ? planned : 0);
+    final actual  = diffMin > 0 ? diffMin : (planned > 0 ? planned : 0);
 
     try {
       await db.update(
@@ -67,11 +66,15 @@ class FocusDao {
         whereArgs: [sessionId],
       );
     } catch (_) {
-      // 降级（老表无 completed/actual_minutes）
-      await db.update('focus_sessions', {'end_ts': endMs}, where: 'id=?', whereArgs: [sessionId]);
+      // 老表没有 completed/actual_minutes 时的降级
+      await db.update(
+        'focus_sessions',
+        {'end_ts': endMs},
+        where: 'id=?',
+        whereArgs: [sessionId],
+      );
     }
 
-    // 若带了休息秒数，记一条
     if (restSeconds != null && restSeconds > 0) {
       await addRestSeconds(sessionId, restSeconds);
     }
@@ -88,7 +91,7 @@ class FocusDao {
     });
   }
 
-  /// 追加休息时长（秒）。暂停→恢复时由专注页累加一次即可。
+  /// 追加休息时长（秒）
   static Future<void> addRestSeconds(int sessionId, int seconds) async {
     if (seconds <= 0) return;
     final db = await AppDb.db;
@@ -100,9 +103,9 @@ class FocusDao {
     });
   }
 
-  // ------------------- 统计聚合接口（供统计页调用） -------------------
+  // ------------------- 统计聚合接口 -------------------
 
-  /// 区间内所有专注会话；返回 Map 至少包含：minutes（计算后的分钟数）
+  /// 区间内所有会话（返回的每行都包含 minutes 字段）
   static Future<List<Map<String, Object?>>> loadSessionsBetween(
       DateTime from, DateTime to) async {
     final db = await AppDb.db;
@@ -150,7 +153,7 @@ class FocusDao {
     );
   }
 
-  /// 区间内休息秒数总和
+  /// 区间内休息秒数
   static Future<int> restSecondsBetween(DateTime from, DateTime to) async {
     final db = await AppDb.db;
     await _ensureTables(db);
@@ -158,15 +161,16 @@ class FocusDao {
     final t = to.millisecondsSinceEpoch;
     try {
       final r = await db.rawQuery(
-          'SELECT COALESCE(SUM(seconds),0) AS s FROM focus_rest WHERE ts BETWEEN ? AND ?',
-          [f, t]);
+        'SELECT COALESCE(SUM(seconds),0) AS s FROM focus_rest WHERE ts BETWEEN ? AND ?',
+        [f, t],
+      );
       return (r.first['s'] as int?) ?? 0;
     } catch (_) {
       return 0;
     }
   }
 
-  /// 连续达成天数（有完成会话算 1 天）
+  /// 连续达成天数（当日有完成会话记 1）
   static Future<int> streakDays() async {
     final db = await AppDb.db;
     await _ensureTables(db);
@@ -175,8 +179,7 @@ class FocusDao {
     DateTime cursor = DateTime.now();
     while (true) {
       final dayStart = DateTime(cursor.year, cursor.month, cursor.day);
-      final dayEnd = dayStart.add(const Duration(days: 1)).subtract(const Duration(milliseconds: 1));
-
+      final dayEnd   = dayStart.add(const Duration(days: 1)).subtract(const Duration(milliseconds: 1));
       final f = dayStart.millisecondsSinceEpoch;
       final t = dayEnd.millisecondsSinceEpoch;
 
@@ -220,7 +223,7 @@ class FocusDao {
     }
   }
 
-  /// 区间内专注分钟总和（供“等价卡片”口径）
+  /// 区间内专注分钟总和
   static Future<int> minutesBetween(DateTime from, DateTime to) async {
     final rows = await loadSessionsBetween(from, to);
     var sum = 0;
@@ -232,9 +235,9 @@ class FocusDao {
 
   /// 本月专注分钟
   static Future<int> minutesThisMonth() async {
-    final now = DateTime.now();
+    final now  = DateTime.now();
     final from = DateTime(now.year, now.month, 1);
-    final to = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
+    final to   = DateTime(now.year, now.month + 1, 0, 23, 59, 59, 999);
     return minutesBetween(from, to);
   }
 
@@ -278,7 +281,7 @@ class FocusDao {
     }
   }
 
-  // ------------------- 表结构兜底（如不存在则创建最小结构） -------------------
+  // ------------------- 表结构兜底 -------------------
 
   static Future<void> _ensureTables(Database db) async {
     await db.execute('''

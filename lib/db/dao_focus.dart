@@ -9,20 +9,27 @@ class FocusDao {
       'completed': 0,
       'task_id': taskId,
       'goal_text': goalText,
+      'rest_seconds': 0,
     });
   }
 
-  static Future<void> finishSession(int id, {required bool completed}) async {
+  static Future<void> finishSession(
+    int id, {
+    required bool completed,
+    int restSeconds = 0,
+  }) async {
     final db = await AppDB.db;
     await db.update(
       'focus_sessions',
       {
         'end_ts': DateTime.now().millisecondsSinceEpoch,
         'completed': completed ? 1 : 0,
+        'rest_seconds': restSeconds,
       },
       where: 'id=?',
       whereArgs: [id],
     );
+
     if (completed) {
       final row = await db.query('focus_sessions', columns: ['task_id'], where: 'id=?', whereArgs: [id], limit: 1);
       final taskId = (row.isNotEmpty ? row.first['task_id'] as int? : null);
@@ -60,6 +67,16 @@ class FocusDao {
       GROUP BY reason
       ORDER BY cnt DESC
     ''', [fromMs, toMs]);
+  }
+
+  static Future<int> restSecondsBetween(int fromMs, int toMs) async {
+    final db = await AppDB.db;
+    final rows = await db.rawQuery('''
+      SELECT COALESCE(SUM(rest_seconds),0) AS total
+      FROM focus_sessions
+      WHERE start_ts>=? AND start_ts<?
+    ''', [fromMs, toMs]);
+    return (rows.first['total'] as int?) ?? 0;
   }
 
   static Future<int> streakDays() async {

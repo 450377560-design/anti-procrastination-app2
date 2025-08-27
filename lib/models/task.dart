@@ -14,6 +14,8 @@ class Task {
   int? estimatePomos;
   int actualPomos;
 
+  String? note; // 新增：笔记
+
   Task({
     this.id,
     required this.title,
@@ -28,6 +30,7 @@ class Task {
     this.done = false,
     this.estimatePomos,
     this.actualPomos = 0,
+    this.note,
   });
 
   Map<String, dynamic> toMap() => {
@@ -44,6 +47,7 @@ class Task {
         'done': done ? 1 : 0,
         'estimate_pomos': estimatePomos,
         'actual_pomos': actualPomos,
+        'note': note,
       }..removeWhere((k, v) => v == null);
 
   static Task fromMap(Map<String, dynamic> m) => Task(
@@ -60,5 +64,6 @@ class Task {
         done: ((m['done'] as int?) ?? 0) == 1,
         estimatePomos: m['estimate_pomos'] as int?,
         actualPomos: (m['actual_pomos'] as int?) ?? 0,
+        note: m['note'] as String?,
       );
 }

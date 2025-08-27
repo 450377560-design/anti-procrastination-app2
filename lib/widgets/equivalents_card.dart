@@ -1,21 +1,14 @@
-import 'dart:io';
 import 'dart:ui' as ui;
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
-
-import '../settings/equivalents_model.dart';
+import 'package:flutter/rendering.dart';
 import '../settings/equivalents_store.dart';
-import '../pages/settings_equivalents_page.dart';
-import 'package:flutter/rendering.dart'; // ← 新增，用于 RenderRepaintBoundary
-
+import '../settings/equivalents_model.dart';
 
 class EquivalentsCard extends StatefulWidget {
   final int todayMinutes;
   final int weekMinutes;
-  final int? monthMinutes; // 可为 null，则该口径自动禁用
-  final int? allMinutes;   // 可为 null，则该口径自动禁用
+  final int? monthMinutes;
+  final int? allMinutes;
   final String title;
 
   const EquivalentsCard({
@@ -33,132 +26,93 @@ class EquivalentsCard extends StatefulWidget {
 
 class _EquivalentsCardState extends State<EquivalentsCard> {
   final _keyBoundary = GlobalKey();
-  String _scope = '7d'; // 'today' | '7d' | 'month' | 'all'
   List<EquivalentUnit> _units = [];
+  bool _ready = false;
 
   @override
   void initState() {
     super.initState();
-    _loadUnits();
+    // 放到首帧之后，避免在 very-early 阶段触发插件通道
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final u = await EquivalentsStore.load();
+        if (!mounted) return;
+        setState(() {
+          _units = u;
+          _ready = true;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _units = List.of(kDefaultEquivalentUnits);
+          _ready = true;
+        });
+      }
+    });
   }
 
-  Future<void> _loadUnits() async {
-    _units = await EquivalentsStore.load();
-    if (mounted) setState(() {});
+  String _fmt(int minutes) {
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return '${h.toString().padLeft(2, '0')}小时${m.toString().padLeft(2, '0')}分钟';
   }
 
-  int get _minutes {
-    switch (_scope) {
-      case 'today': return widget.todayMinutes;
-      case '7d':    return widget.weekMinutes;
-      case 'month': return widget.monthMinutes ?? 0;
-      case 'all':   return widget.allMinutes ?? 0;
-      default:      return widget.weekMinutes;
+  List<Widget> _rows(String label, int minutes) {
+    if (minutes <= 0 || _units.isEmpty) return [];
+    final tiles = <Widget>[];
+    for (final u in _units) {
+      if (u.minutes <= 0) continue;
+      final n = (minutes / u.minutes).toStringAsFixed(1);
+      tiles.add(Row(
+        children: [
+          Text(u.emoji, style: const TextStyle(fontSize: 18)),
+          const SizedBox(width: 8),
+          Expanded(child: Text('${u.name} ≈ $n 个')),
+        ],
+      ));
     }
-  }
-
-  String _fmt(double v) => v >= 10 ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
-
-  Future<void> _sharePng() async {
-    try {
-      final boundary = _keyBoundary.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) return;
-      final img = await boundary.toImage(pixelRatio: 3);
-      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-      if (bytes == null) return;
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/equivalents_${DateTime.now().millisecondsSinceEpoch}.png');
-      await file.writeAsBytes(bytes.buffer.asUint8List());
-      await Share.shareXFiles([XFile(file.path)], text: '我的专注等价物');
-    } catch (_) {}
+    if (tiles.isEmpty) return [];
+    return [
+      Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 4),
+        child: Text('$label（${_fmt(minutes)}）',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+      ),
+      ...tiles,
+    ];
   }
 
   @override
   Widget build(BuildContext context) {
-    final chips = <Widget>[];
-    for (final u in _units) {
-      if (u.minutes <= 0) continue;
-      final count = _minutes / u.minutes;
-      if (count < .2) continue;
-      chips.add(Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        margin: const EdgeInsets.only(right: 8, bottom: 8),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: .06),
-          border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: .20)),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Text(u.emoji, style: const TextStyle(fontSize: 16)),
-          const SizedBox(width: 6),
-          Text('${_fmt(count)} 个${u.name}', style: const TextStyle(fontWeight: FontWeight.w500)),
-        ]),
-      ));
-    }
-
-    // 口径可用性
-    final monthEnabled = widget.monthMinutes != null;
-    final allEnabled   = widget.allMinutes != null;
-
-    return Card(
-      child: RepaintBoundary(
-        key: _keyBoundary,
+    return RepaintBoundary(
+      key: _keyBoundary,
+      child: Card(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(
-              children: [
-                Expanded(child: Text(widget.title, style: const TextStyle(fontWeight: FontWeight.bold))),
-                IconButton(
-                  tooltip: '配置等价单位',
-                  onPressed: () async {
-                    final changed = await Navigator.of(context).push<bool>(
-                      MaterialPageRoute(builder: (_) => const SettingsEquivalentsPage()),
-                    );
-                    if (changed == true) _loadUnits();
-                  },
-                  icon: const Icon(Icons.tune),
+          padding: const EdgeInsets.all(12),
+          child: _ready
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.title,
+                        style: Theme.of(context).textTheme.titleMedium),
+                    ..._rows('今日', widget.todayMinutes),
+                    ..._rows('本周', widget.weekMinutes),
+                    if (widget.monthMinutes != null)
+                      ..._rows('本月', widget.monthMinutes!),
+                    if (widget.allMinutes != null)
+                      ..._rows('累计', widget.allMinutes!),
+                  ],
+                )
+              : Row(
+                  children: const [
+                    SizedBox(
+                      width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 8),
+                    Text('加载中…'),
+                  ],
                 ),
-                IconButton(
-                  tooltip: '分享为图片',
-                  onPressed: _sharePng,
-                  icon: const Icon(Icons.ios_share),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            // 口径选择
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(children: [
-                ChoiceChip(
-                  label: const Text('今日'),
-                  selected: _scope == 'today',
-                  onSelected: (_) => setState(() => _scope = 'today'),
-                ),
-                const SizedBox(width: 6),
-                ChoiceChip(
-                  label: const Text('近7日'),
-                  selected: _scope == '7d',
-                  onSelected: (_) => setState(() => _scope = '7d'),
-                ),
-                const SizedBox(width: 6),
-                ChoiceChip(
-                  label: const Text('本月'),
-                  selected: _scope == 'month',
-                  onSelected: monthEnabled ? (_) => setState(() => _scope = 'month') : null,
-                ),
-                const SizedBox(width: 6),
-                ChoiceChip(
-                  label: const Text('累计'),
-                  selected: _scope == 'all',
-                  onSelected: allEnabled ? (_) => setState(() => _scope = 'all') : null,
-                ),
-              ]),
-            ),
-            const SizedBox(height: 10),
-            Wrap(children: chips),
-          ]),
         ),
       ),
     );

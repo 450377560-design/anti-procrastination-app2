@@ -1,35 +1,32 @@
 import 'dart:async';
 import 'package:sqflite/sqflite.dart';
-import 'package:anti_procrastination_app2/db/app_db.dart';
+import 'app_db.dart';
 
 /// 说明：
-/// - startSession 同时兼容两种调用：startSession(25) 或 startSession(plannedMinutes: 25, taskId: 1)
-/// - finishSession 兼容可选参数 restSeconds（你的 focus_page.dart 正在传）
-/// - 补齐 minutesThisMonth / minutesAll，供统计页“等价卡片”使用
+/// - startSession 改为仅命名参数；请把调用处改为命名方式（见下文 B）
+/// - finishSession 兼容 restSeconds
+/// - minutesThisMonth / minutesAll 提供给统计页“等价卡片”
 class FocusDao {
   // ------------------- 写入类接口 -------------------
 
   /// 开始一次专注；返回 sessionId
-  /// 兼容：startSession(25) 或 startSession(plannedMinutes: 25, taskId: 1)
-  static Future<int> startSession([int? minutes], {
-    int? plannedMinutes,
+  static Future<int> startSession({
+    required int plannedMinutes,
     int? taskId,
     DateTime? start,
   }) async {
     final db = await AppDb.db;
     await _ensureTables(db);
     final now = (start ?? DateTime.now()).millisecondsSinceEpoch;
-    final plan = plannedMinutes ?? minutes ?? 25;
     return await db.insert('focus_sessions', {
       'start_ts': now,
-      'planned_minutes': plan,
+      'planned_minutes': plannedMinutes,
       'task_id': taskId,
       'completed': 0,
     });
   }
 
-  /// 结束一次专注；completed=true 代表“完成”，false 代表“中止/打断”
-  /// 兼容：restSeconds 传入时会记入休息统计
+  /// 结束一次专注；completed=true 表示“完成”，false 表示“中止/打断”
   static Future<void> finishSession(
     int sessionId, {
     required bool completed,
@@ -66,13 +63,7 @@ class FocusDao {
         whereArgs: [sessionId],
       );
     } catch (_) {
-      // 老表没有 completed/actual_minutes 时的降级
-      await db.update(
-        'focus_sessions',
-        {'end_ts': endMs},
-        where: 'id=?',
-        whereArgs: [sessionId],
-      );
+      await db.update('focus_sessions', {'end_ts': endMs}, where: 'id=?', whereArgs: [sessionId]);
     }
 
     if (restSeconds != null && restSeconds > 0) {
@@ -105,7 +96,7 @@ class FocusDao {
 
   // ------------------- 统计聚合接口 -------------------
 
-  /// 区间内所有会话（返回的每行都包含 minutes 字段）
+  /// 区间内所有会话（每行包含 minutes 字段）
   static Future<List<Map<String, Object?>>> loadSessionsBetween(
       DateTime from, DateTime to) async {
     final db = await AppDb.db;
@@ -138,7 +129,7 @@ class FocusDao {
     return rows;
   }
 
-  /// 区间内的打断记录
+  /// 区间内打断记录
   static Future<List<Map<String, Object?>>> loadInterruptionsBetween(
       DateTime from, DateTime to) async {
     final db = await AppDb.db;

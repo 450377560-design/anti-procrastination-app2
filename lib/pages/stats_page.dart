@@ -513,8 +513,9 @@ class _StatsPageState extends State<StatsPage> {
             Text(day.toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 2),
             Text(
-              total == 0 ? '-' : '完成 $done/$total',
-              style: const TextStyle(fontSize: 12),
+              total == 0 ? '-' : '$done/$total',
+              style: const TextStyle(fontSize: 11),
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ],
@@ -530,7 +531,7 @@ class _StatsPageState extends State<StatsPage> {
           crossAxisCount: 7,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          childAspectRatio: 0.85, // 增高格子，解决 BOTTOM OVERFLOWED
+          childAspectRatio: 0.65, // 增高格子，解决 BOTTOM OVERFLOWED
           children: cells,
         ),
       ],

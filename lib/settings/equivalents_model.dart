@@ -1,18 +1,26 @@
 class EquivalentUnit {
-  String emoji;
-  String name;
-  int minutes; // 1 个单位对应多少分钟
+  final String name;      // 名称，如：番茄、短文、跑步
+  final String emoji;     // 小图标
+  final int minutes;      // 1个单位对应的分钟数
 
-  EquivalentUnit({required this.emoji, required this.name, required this.minutes});
+  const EquivalentUnit({
+    required this.name,
+    required this.emoji,
+    required this.minutes,
+  });
 
-  factory EquivalentUnit.fromJson(Map<String, dynamic> j) =>
-      EquivalentUnit(emoji: j['emoji'] as String, name: j['name'] as String, minutes: j['minutes'] as int);
+  factory EquivalentUnit.fromJson(Map<String, dynamic> j) => EquivalentUnit(
+        name: j['name'] as String? ?? '',
+        emoji: j['emoji'] as String? ?? '',
+        minutes: (j['minutes'] as num?)?.toInt() ?? 0,
+      );
 
-  Map<String, dynamic> toJson() => {'emoji': emoji, 'name': name, 'minutes': minutes};
+  Map<String, dynamic> toJson() =>
+      {'name': name, 'emoji': emoji, 'minutes': minutes};
 }
 
-/// 成就感导向默认映射
-final List<EquivalentUnit> kDefaultEquivalentUnits = [
+/// 默认等价清单 —— 纯常量，不做任何异步，安全
+const List<EquivalentUnit> kDefaultEquivalentUnits = [
   EquivalentUnit(emoji: '🗓️', name: '有效工作日', minutes: 480), // 8h
   EquivalentUnit(emoji: '📅', name: '工作周', minutes: 2400),   // 5×8h
   EquivalentUnit(emoji: '🎯', name: '深度工作块', minutes: 90),

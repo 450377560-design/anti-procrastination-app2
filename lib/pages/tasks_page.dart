@@ -15,6 +15,13 @@ import '../notify/notification_service.dart';
 import '../utils/color_hash.dart';
 import 'task_note_page.dart';
 
+// 顶层工具：把 DateTime 转成 'YYYY-MM-DD'
+String _fmtDate(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-'
+    '${d.month.toString().padLeft(2, '0')}-'
+    '${d.day.toString().padLeft(2, '0')}';
+
+
 class TasksPage extends StatefulWidget {
   const TasksPage({super.key});
   @override
@@ -524,7 +531,7 @@ class _TasksPageState extends State<TasksPage> {
       to = DateTime(now.year, now.month, now.day);
     }
 
-    final tasks = await TaskDao.completedInRange(from, to);
+    final tasks = await TaskDao.completedInRange(_fmtDate(from), _fmtDate(to));
     final buf = StringBuffer()
       ..writeln('# 已完成任务导出')
       ..writeln('时间范围：${DateFormat('yyyy-MM-dd').format(from)} ~ ${DateFormat('yyyy-MM-dd').format(to)}')
@@ -711,7 +718,10 @@ class _TasksPageState extends State<TasksPage> {
           leading: Checkbox(
             value: t.done,
             onChanged: (_) async {
-              await TaskDao.toggleDone(t);
+              if (t.id != null) {
+               await TaskDao.toggleDone(t.id!);
+              }
+
               setState(() => t.done = !t.done);
               if (t.id != null) {
                 if (t.done) {

@@ -6,15 +6,12 @@ class TaskDao {
   static String _fmtDate(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-   static Future<int> insert(Map<String, Object?> data) async {
-    final db = await AppDb.db;             // ① 先拿到 db
-    data['date'] ??= _fmtDate(DateTime.now()); // ② 就在这里加这一行（兜底 date）
-    return await db.insert('tasks', data); // ③ 再执行真正的插入
-  } 
   
   static Future<int> insert(Task t) async {
     final db = await AppDb.db;
-    return db.insert('tasks', t.toMap());
+    final map = t.toMap(); 
+    map['date'] ??= _fmtDate(DateTime.now());
+    return db.insert('tasks', map);
   }
 
   static Future<void> update(Task t) async {

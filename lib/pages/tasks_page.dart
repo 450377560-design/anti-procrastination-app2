@@ -644,6 +644,7 @@ class _TasksPageState extends State<TasksPage> {
     );
   }
 
+
   Widget _buildTile(Task t) {
     final sel = _selected.contains(t.id);
     final labels = (t.labels ?? '').split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
@@ -651,6 +652,29 @@ class _TasksPageState extends State<TasksPage> {
     final baseColor = colorFromString(t.project ?? t.title);
     final bg = baseColor.withValues(alpha: .06);
     final border = baseColor.withValues(alpha: .20);
+
+    // 预计分钟：优先用保存的值；没有则按开始/结束时间自动计算
+    final expMinutes = t.expectedMinutes ?? _diffMinutes(t.startTime, t.endTime);
+
+    // 统一样式的小徽签
+    Widget infoChip(IconData icon, String text) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          border: Border.all(color: border),
+          borderRadius: BorderRadius.circular(10),
+          color: Colors.white.withValues(alpha: .65),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14),
+            const SizedBox(width: 4),
+            Text(text, style: const TextStyle(letterSpacing: 0.5)),
+          ],
+        ),
+      );
+    }
 
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
@@ -729,22 +753,18 @@ class _TasksPageState extends State<TasksPage> {
               spacing: 6,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                if (t.startTime != null || t.endTime != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: border),
-                      borderRadius: BorderRadius.circular(10),
-                      color: Colors.white.withValues(alpha: .65),
-                    ),
-                    child: Text('${t.startTime ?? "--"} - ${t.endTime ?? "--"}',
-                        style: const TextStyle(letterSpacing: 1)),
-                  ),
+                // ——— 新增：开始/结束/预计 时长 ———
+                infoChip(Icons.play_arrow_rounded, '开始 ${t.startTime ?? "--:--"}'),
+                infoChip(Icons.flag_rounded, '结束 ${t.endTime ?? "--:--"}'),
+                if (expMinutes != null) infoChip(Icons.timer_outlined, '预计 ${expMinutes} 分'),
+
+                // 标签
                 if (labels.isNotEmpty)
                   ...labels.map((e) => Chip(
                         label: Text('#$e', style: const TextStyle(color: Colors.white)),
                         backgroundColor: colorFromString(e),
                       )),
+                // 番茄数
                 if (t.actualPomos > 0) Chip(label: Text('已完成番茄：${t.actualPomos}')),
               ],
             ),

@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 import 'db/dao_focus.dart';
+import 'db/dao_task.dart';
 import 'models/task.dart';
 
 class FocusPage extends StatefulWidget {
-  final int minutes;
-  final Task? task; // 关联任务（可空）
+  final int minutes;   // 必填：专注分钟
+  final Task? task;    // 可选：来自任务页的任务
+
   const FocusPage({super.key, required this.minutes, this.task});
 
   @override
@@ -15,202 +15,219 @@ class FocusPage extends StatefulWidget {
 }
 
 class _FocusPageState extends State<FocusPage> {
-  late int _remaining;
-  Timer? _timer;
-
-  bool _paused = false;
-  bool _ended = false;
   int? _sessionId;
+  bool _running = false;
+  bool _paused  = false;
+  int  _remainingSec = 0;
 
-  // 休息计时
-  int _restAccum = 0; // 当前会话累计休息秒
-  Timer? _restTimer;
+  int  _restAccum = 0;            // 已累计的休息秒数
+  DateTime? _pauseStart;          // 暂停起点（用于累计休息）
+  Timer? _tick;
 
   @override
   void initState() {
     super.initState();
-    _remaining = widget.minutes * 60;
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    WakelockPlus.enable();
-    _startSession();
-    _ping();
-  }
-
-  Future<void> _startSession() async {
-    _sessionId = await FocusDao.startSession(
-      plannedMinutes: 25,
-      taskId: widget.task?.id,
-    );
-
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) async {
-      if (_paused || _ended) return;
-      if (!mounted) return;
-      setState(() => _remaining--);
-      if (_remaining <= 0 && !_ended) {
-        _ended = true;
-        _timer?.cancel();
-        await FocusDao.finishSession(_sessionId!, completed: true, restSeconds: _restAccum);
-        if (!mounted) return;
-        await _celebrate();
-        if (!mounted) return;
-        Navigator.pop(context);
-      }
-    });
+    _remainingSec = widget.minutes * 60; // 不自动开始，等用户点击
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
-    _restTimer?.cancel();
-    WakelockPlus.disable();
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _tick?.cancel();
     super.dispose();
   }
 
-  Future<void> _stop() async {
-    if (_ended) {
-      if (mounted) Navigator.pop(context);
-      return;
+  void _start() async {
+    if (_running) return;
+    final id = await FocusDao.startSession(
+      plannedMinutes: widget.minutes,
+      taskId: widget.task?.id,
+    );
+    setState(() {
+      _sessionId = id;
+      _running = true;
+      _paused  = false;
+      _remainingSec = widget.minutes * 60;
+    });
+    _tick?.cancel();
+    _tick = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!_paused) {
+        if (_remainingSec > 0) {
+          setState(() => _remainingSec--);
+        } else {
+          _onAutoFinish();
+        }
+      }
+    });
+  }
+
+  Future<void> _onAutoFinish() async {
+    if (_sessionId == null) return;
+    // 自动结束视为完成
+    // 若此时处于暂停，补齐休息时间
+    if (_paused && _pauseStart != null) {
+      _restAccum += DateTime.now().difference(_pauseStart!).inSeconds;
     }
-    await _maybeRecordInterruption('手动停止');
-    _ended = true;
-    _timer?.cancel();
-    _restTimer?.cancel();
-    if (_sessionId != null) {
-      await FocusDao.finishSession(_sessionId!, completed: false, restSeconds: _restAccum);
-    }
+    await FocusDao.finishSession(_sessionId!, completed: true, restSeconds: _restAccum);
+    _cleanup();
     if (!mounted) return;
-    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('太棒了，本次专注完成！(+10 积分)')),
+    );
   }
 
   Future<void> _togglePause() async {
-    setState(() => _paused = !_paused);
-    _ping();
+    if (!_running) return;
     if (_paused) {
-      await _maybeRecordInterruption('暂停');
-      _restTimer?.cancel();
-      _restTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        setState(() => _restAccum++);
+      // 继续：把这段暂停时间计入休息
+      if (_pauseStart != null) {
+        _restAccum += DateTime.now().difference(_pauseStart!).inSeconds;
+      }
+      setState(() {
+        _paused = false;
+        _pauseStart = null;
       });
     } else {
-      _restTimer?.cancel();
+      // 开始暂停
+      setState(() {
+        _paused = true;
+        _pauseStart = DateTime.now();
+      });
     }
   }
 
-  Future<void> _maybeRecordInterruption(String defaultReason) async {
-    if (_sessionId == null) return;
-    final r = await _pickReason(defaultReason);
-    if (r != null && r.trim().isNotEmpty) {
-      await FocusDao.addInterruption(_sessionId!, r.trim());
+  Future<void> _stop() async {
+    if (_sessionId == null) {
+      _cleanup();
+      return;
     }
-  }
-
-  Future<String?> _pickReason(String fallback) async {
-    final ctrl = TextEditingController();
-    final reasons = ['消息', '刷短视频', '临时事项', '疲劳', '生理需求', '其它'];
-    return showModalBottomSheet<String>(
+    // 先选“完成 / 被打断”
+    final action = await showDialog<String>(
       context: context,
-      showDragHandle: true,
-      builder: (c) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('是什么打断了你？', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8, runSpacing: 8,
-                children: reasons.map((e) {
-                  return ChoiceChip(
-                    label: Text(e),
-                    selected: false,
-                    onSelected: (_) => Navigator.pop(c, e == '其它' ? null : e),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: ctrl,
-                decoration: const InputDecoration(
-                  labelText: '自定义原因（可选）',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  TextButton(onPressed: () => Navigator.pop(c, null), child: const Text('跳过')),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(c, ctrl.text.trim().isEmpty ? fallback : ctrl.text.trim()),
-                    child: const Text('确定'),
-                  ),
-                ],
-              ),
-            ],
-          ),
+      builder: (ctx) => AlertDialog(
+        title: const Text('结束专注'),
+        content: const Text('请选择本次结果'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, 'interrupt'), child: const Text('被打断')),
+          TextButton(onPressed: () => Navigator.pop(ctx, 'complete'),  child: const Text('完成')),
+          TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'),    child: const Text('取消')),
+        ],
+      ),
+    );
+    if (!mounted || action == null || action == 'cancel') return;
+
+    bool completed = action == 'complete';
+    // 若被打断，采集原因
+    if (!completed) {
+      final reason = await _askInterruptionReason();
+      if (reason != null && reason.trim().isNotEmpty) {
+        await FocusDao.addInterruption(_sessionId!, reason.trim());
+      }
+    }
+    // 若仍在暂停，补齐休息时间
+    if (_paused && _pauseStart != null) {
+      _restAccum += DateTime.now().difference(_pauseStart!).inSeconds;
+    }
+    await FocusDao.finishSession(_sessionId!, completed: completed, restSeconds: _restAccum);
+    _cleanup(); // 重置当前页 UI（不 pop，避免黑屏）
+  }
+
+  Future<String?> _askInterruptionReason() async {
+    final reasons = ['消息/来电', '想刷手机', '被人打断', '去做别的事', '身体不适', '其他'];
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('打断原因'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: reasons
+                  .map((r) => ActionChip(label: Text(r), onPressed: () => Navigator.pop(ctx, r)))
+                  .toList(),
+            ),
+            const SizedBox(height: 12),
+            TextField(controller: controller, decoration: const InputDecoration(hintText: '自定义原因')),
+          ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim().isEmpty ? null : controller.text.trim()),
+            child: const Text('确定'),
+          ),
+        ],
       ),
     );
   }
 
-  Future<void> _ping() async {
-    await SystemSound.play(SystemSoundType.click);
-    try { await HapticFeedback.mediumImpact(); } catch (_) {}
+  void _cleanup() {
+    _tick?.cancel();
+    _tick = null;
+    setState(() {
+      _running = false;
+      _paused = false;
+      _pauseStart = null;
+      _sessionId = null;
+      _restAccum = 0;
+      _remainingSec = widget.minutes * 60;
+    });
   }
 
-  String _fmt(int s) => '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
-
-  Future<void> _celebrate() async {
-    await _ping();
-    await showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (c) => AlertDialog(
-        title: const Text('🎉 太棒了！'),
-        content: const Text('本次专注完成，奖励 +10 积分'),
-        actions: [FilledButton(onPressed: () => Navigator.of(c).pop(), child: const Text('确定'))],
-      ),
-    );
+  String _fmt() {
+    final m = _remainingSec ~/ 60;
+    final s = _remainingSec % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
   @override
   Widget build(BuildContext context) {
-    final taskTitle = widget.task?.title;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                if (taskTitle != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text('任务：$taskTitle', style: const TextStyle(color: Colors.white70)),
-                  ),
-                Text(_fmt(_remaining),
-                    style: const TextStyle(color: Colors.white, fontSize: 96, fontWeight: FontWeight.w600, letterSpacing: 2)),
-                const SizedBox(height: 24),
-                if (_paused)
-                  Column(
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: _running
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_fmt(), style: const TextStyle(fontSize: 64, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  if (_paused)
+                    Text('休息中… 已休息 ${(_restAccum / 60).floor()} 分 ${_restAccum % 60} 秒',
+                        style: const TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('休息时间', style: TextStyle(color: Colors.white70)),
-                      Text(_fmt(_restAccum),
-                          style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 8),
+                      ElevatedButton.icon(
+                        onPressed: _togglePause,
+                        icon: Icon(_paused ? Icons.play_arrow : Icons.pause),
+                        label: Text(_paused ? '继续' : '暂停'),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        onPressed: _stop,
+                        icon: const Icon(Icons.stop),
+                        label: const Text('停止'),
+                      ),
                     ],
                   ),
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  FilledButton(onPressed: _togglePause, child: Text(_paused ? '继续' : '暂停')),
-                  const SizedBox(width: 12),
-                  FilledButton.tonal(onPressed: _stop, child: const Text('停止')),
-                ]),
-              ]),
-            ),
-          ],
-        ),
+                ],
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.timer_outlined, size: 72),
+                  const SizedBox(height: 12),
+                  Text('准备开始 ${widget.minutes} 分钟专注', style: const TextStyle(fontSize: 16)),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: _start,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('开始专注'),
+                  ),
+                ],
+              ),
       ),
     );
   }

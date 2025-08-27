@@ -9,20 +9,16 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_localizations:
-    sdk: flutter
-    
+    sdk: flutter  
   intl: ^0.20.0
   sqflite: ^2.3.3+1    # 本地数据库
   path: ^1.9.0         # join() 等路径方法
   wakelock_plus: ^1.2.5
   fl_chart: ^0.66.2     # ← 新增：图表
-  
   flutter_local_notifications: ^17.2.4
   timezone: ^0.9.3   
-  
   path_provider: ^2.1.2
   share_plus: ^10.0.2
-
   shared_preferences: ^2.2.3
   flutter_markdown: ^0.6.18+2
 

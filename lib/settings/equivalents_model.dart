@@ -11,7 +11,7 @@ class EquivalentUnit {
   Map<String, dynamic> toJson() => {'emoji': emoji, 'name': name, 'minutes': minutes};
 }
 
-/// 成就感导向的默认映射（可在设置里改）
+/// 成就感导向默认映射
 final List<EquivalentUnit> kDefaultEquivalentUnits = [
   EquivalentUnit(emoji: '🗓️', name: '有效工作日', minutes: 480), // 8h
   EquivalentUnit(emoji: '📅', name: '工作周', minutes: 2400),   // 5×8h

@@ -27,4 +27,22 @@ class TemplateDao {
     final db = await AppDB.db;
     return db.delete('templates', where: 'id=?', whereArgs: [id]);
   }
+
+  // 首次启动时补充一批默认模板（不存在时才插入）
+  static Future<void> seedDefaults(String date) async {
+    final db = await AppDB.db;
+    final cnt = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM templates')) ?? 0;
+    if (cnt > 0) return;
+
+    final List<(String, Task)> defs = [
+      ('晨间规划 10min', Task(title: '晨间规划', expectedMinutes: 10, priority: 2, labels: '规划', project: '日常', date: date)),
+      ('深度工作 50min', Task(title: '深度工作块', expectedMinutes: 50, priority: 1, labels: '专注', project: '工作', date: date, estimatePomos: 2)),
+      ('阅读 20min', Task(title: '阅读', expectedMinutes: 20, priority: 2, labels: '学习', project: '自我提升', date: date)),
+      ('锻炼 30min', Task(title: '锻炼', expectedMinutes: 30, priority: 2, labels: '健康', project: '身体', date: date)),
+    ];
+
+    for (final e in defs) {
+      await saveTemplate(e.$1, e.$2);
+    }
+  }
 }

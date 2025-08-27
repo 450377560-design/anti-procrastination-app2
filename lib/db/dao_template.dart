@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:sqflite/sqflite.dart'; // ← 补这行
 import '../models/task.dart';
 import 'app_db.dart';
 
@@ -34,7 +35,7 @@ class TemplateDao {
     final cnt = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM templates')) ?? 0;
     if (cnt > 0) return;
 
-    final List<(String, Task)> defs = [
+    final defs = [
       ('晨间规划 10min', Task(title: '晨间规划', expectedMinutes: 10, priority: 2, labels: '规划', project: '日常', date: date)),
       ('深度工作 50min', Task(title: '深度工作块', expectedMinutes: 50, priority: 1, labels: '专注', project: '工作', date: date, estimatePomos: 2)),
       ('阅读 20min', Task(title: '阅读', expectedMinutes: 20, priority: 2, labels: '学习', project: '自我提升', date: date)),

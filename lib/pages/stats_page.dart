@@ -224,20 +224,26 @@ class _StatsPageState extends State<StatsPage> {
 
   // ======= 小部件们 =======
 
+  
   Widget _focusCard(String title, int minutes, int sessions, int? interrupt) {
-    String mm(int x) => '${(x ~/ 60).toString().padLeft(2, '0')}小时${(x % 60).toString().padLeft(2, '0')}分钟';
-    return Card(
-      child: ListTile(
-        leading: const Icon(Icons.timer_outlined),
-        title: Text(title),
-        subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('专注：$mm(minutes)'),
+  String mm(int x) => '${(x ~/ 60).toString().padLeft(2, '0')}小时${(x % 60).toString().padLeft(2, '0')}分钟';
+  return Card(
+    child: ListTile(
+      leading: const Icon(Icons.timer_outlined),
+      title: Text(title),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('专注：${mm(minutes)}'),  // ← 修正
           Text('完成次数：$sessions'),
           if (interrupt != null) Text('今日打断：$interrupt 次'),
-        ]),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
+
 
   Widget _rateCard(String title, int done, int total) {
     final pct = total == 0 ? 0 : ((done * 100.0) / total).round();

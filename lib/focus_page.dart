@@ -17,12 +17,14 @@ class FocusPage extends StatefulWidget {
 class _FocusPageState extends State<FocusPage> {
   late int _remaining;
   Timer? _timer;
+
   bool _paused = false;
-  bool _ended = false; // 防重复
+  bool _ended = false;
   int? _sessionId;
 
-  bool _soundOn = true;
-  bool _vibrateOn = true;
+  // 休息计时
+  int _restAccum = 0; // 当前会话累计休息秒
+  Timer? _restTimer;
 
   @override
   void initState() {
@@ -31,7 +33,7 @@ class _FocusPageState extends State<FocusPage> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     WakelockPlus.enable();
     _startSession();
-    _ping(); // 开始提示
+    _ping();
   }
 
   Future<void> _startSession() async {
@@ -46,10 +48,10 @@ class _FocusPageState extends State<FocusPage> {
       setState(() => _remaining--);
       if (_remaining <= 0 && !_ended) {
         _ended = true;
-        _timer?.cancel(); // 先停表
-        await FocusDao.finishSession(_sessionId!, completed: true);
+        _timer?.cancel();
+        await FocusDao.finishSession(_sessionId!, completed: true, restSeconds: _restAccum);
         if (!mounted) return;
-        await _celebrate(); // 只弹一次
+        await _celebrate();
         if (!mounted) return;
         Navigator.pop(context);
       }
@@ -59,6 +61,7 @@ class _FocusPageState extends State<FocusPage> {
   @override
   void dispose() {
     _timer?.cancel();
+    _restTimer?.cancel();
     WakelockPlus.disable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
@@ -72,10 +75,10 @@ class _FocusPageState extends State<FocusPage> {
     await _maybeRecordInterruption('手动停止');
     _ended = true;
     _timer?.cancel();
+    _restTimer?.cancel();
     if (_sessionId != null) {
-      await FocusDao.finishSession(_sessionId!, completed: false);
+      await FocusDao.finishSession(_sessionId!, completed: false, restSeconds: _restAccum);
     }
-    await _ping();
     if (!mounted) return;
     Navigator.pop(context);
   }
@@ -85,6 +88,12 @@ class _FocusPageState extends State<FocusPage> {
     _ping();
     if (_paused) {
       await _maybeRecordInterruption('暂停');
+      _restTimer?.cancel();
+      _restTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        setState(() => _restAccum++);
+      });
+    } else {
+      _restTimer?.cancel();
     }
   }
 
@@ -99,8 +108,6 @@ class _FocusPageState extends State<FocusPage> {
   Future<String?> _pickReason(String fallback) async {
     final ctrl = TextEditingController();
     final reasons = ['消息', '刷短视频', '临时事项', '疲劳', '生理需求', '其它'];
-    String? selected;
-
     return showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -115,14 +122,10 @@ class _FocusPageState extends State<FocusPage> {
               Wrap(
                 spacing: 8, runSpacing: 8,
                 children: reasons.map((e) {
-                  final on = selected == e;
                   return ChoiceChip(
                     label: Text(e),
-                    selected: on,
-                    onSelected: (_) {
-                      selected = e;
-                      Navigator.pop(c, e == '其它' ? null : e);
-                    },
+                    selected: false,
+                    onSelected: (_) => Navigator.pop(c, e == '其它' ? null : e),
                   );
                 }).toList(),
               ),
@@ -139,10 +142,10 @@ class _FocusPageState extends State<FocusPage> {
                 children: [
                   TextButton(onPressed: () => Navigator.pop(c, null), child: const Text('跳过')),
                   const Spacer(),
-                  FilledButton(onPressed: () {
-                    final v = ctrl.text.trim();
-                    Navigator.pop(c, v.isEmpty ? fallback : v);
-                  }, child: const Text('确定')),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(c, ctrl.text.trim().isEmpty ? fallback : ctrl.text.trim()),
+                    child: const Text('确定'),
+                  ),
                 ],
               ),
             ],
@@ -190,6 +193,15 @@ class _FocusPageState extends State<FocusPage> {
                 Text(_fmt(_remaining),
                     style: const TextStyle(color: Colors.white, fontSize: 96, fontWeight: FontWeight.w600, letterSpacing: 2)),
                 const SizedBox(height: 24),
+                if (_paused)
+                  Column(
+                    children: [
+                      const Text('休息时间', style: TextStyle(color: Colors.white70)),
+                      Text(_fmt(_restAccum),
+                          style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
                 Row(mainAxisSize: MainAxisSize.min, children: [
                   FilledButton(onPressed: _togglePause, child: Text(_paused ? '继续' : '暂停')),
                   const SizedBox(width: 12),

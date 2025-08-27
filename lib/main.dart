@@ -6,11 +6,17 @@ import 'focus_page.dart';
 import 'pages/tasks_page.dart';
 import 'pages/stats_page.dart';
 import 'notify/notification_service.dart';
+import 'db/dao_template.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // 初始化中文日期/星期等本地化数据，修复 LocaleDataException
   await initializeDateFormatting('zh_CN', null);
+  await NotificationService.init();
+  // 首次补充内置模板
+  final today = DateTime.now();
+  final dateStr = '${today.year.toString().padLeft(4,'0')}-${today.month.toString().padLeft(2,'0')}-${today.day.toString().padLeft(2,'0')}';
+  await TemplateDao.seedDefaults(dateStr);
   runApp(const MyApp());
 }
 

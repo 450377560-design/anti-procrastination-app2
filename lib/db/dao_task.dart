@@ -3,6 +3,15 @@ import '../models/task.dart';
 import 'app_db.dart';
 
 class TaskDao {
+  static String _fmtDate(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+   static Future<int> insert(Map<String, Object?> data) async {
+    final db = await AppDb.db;             // ① 先拿到 db
+    data['date'] ??= _fmtDate(DateTime.now()); // ② 就在这里加这一行（兜底 date）
+    return await db.insert('tasks', data); // ③ 再执行真正的插入
+  } 
+  
   static Future<int> insert(Task t) async {
     final db = await AppDb.db;
     return db.insert('tasks', t.toMap());

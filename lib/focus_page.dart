@@ -38,7 +38,7 @@ class _FocusPageState extends State<FocusPage> {
 
   Future<void> _startSession() async {
     _sessionId = await FocusDao.startSession(
-      plannedMinutes: minutesValue,
+      plannedMinutes: 25,
       taskId: widget.task?.id,
     );
 

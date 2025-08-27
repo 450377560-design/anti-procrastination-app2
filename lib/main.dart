@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
+
 import 'build_info.dart';
 import 'focus_page.dart';
 import 'pages/tasks_page.dart';
@@ -10,14 +12,30 @@ import 'db/dao_template.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // 初始化中文日期/星期等本地化数据，修复 LocaleDataException
-  await initializeDateFormatting('zh_CN', null);
-  await NotificationService.init();
-  // 首次补充内置模板
-  final today = DateTime.now();
-  final dateStr = '${today.year.toString().padLeft(4,'0')}-${today.month.toString().padLeft(2,'0')}-${today.day.toString().padLeft(2,'0')}';
-  await TemplateDao.seedDefaults(dateStr);
+
+  // 先启动应用，保证首帧不被耗时操作阻塞
   runApp(const MyApp());
+
+  // 把所有可能阻塞首帧的初始化放到首帧之后做，并做好容错
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    // 本地化（避免 LocaleDataException），失败也不影响启动
+    try {
+      await initializeDateFormatting('zh_CN', null);
+    } catch (_) {}
+
+    // 通知初始化：个别机型/ROM可能慢或卡，做容错
+    try {
+      await NotificationService.init();
+    } catch (_) {}
+
+    // 首次补充内置模板（涉及 sqflite 打开 DB），放到首帧后
+    try {
+      final now = DateTime.now();
+      final ds =
+          '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      await TemplateDao.seedDefaults(ds);
+    } catch (_) {}
+  });
 }
 
 class MyApp extends StatelessWidget {
@@ -50,6 +68,7 @@ class Root extends StatefulWidget {
 
 class _RootState extends State<Root> {
   int _tab = 0;
+
   @override
   Widget build(BuildContext context) {
     final pages = [const FocusHome(), const TasksPage(), const StatsPage()];
@@ -72,7 +91,9 @@ class FocusHome extends StatelessWidget {
   const FocusHome({super.key});
 
   Future<void> _start(BuildContext context, int minutes) async {
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => FocusPage(minutes: minutes)));
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => FocusPage(minutes: minutes)),
+    );
   }
 
   Future<void> _startCustom(BuildContext context) async {

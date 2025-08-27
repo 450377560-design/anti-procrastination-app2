@@ -118,6 +118,8 @@ class _StatsPageState extends State<StatsPage> {
       'todayDone': todayDone,
       'total7': total7,
       'done7': done7,
+      'focusMonthMin': monthMin,
+      'focusAllMin': allMin,      
     };
   }
 
@@ -165,11 +167,12 @@ class _StatsPageState extends State<StatsPage> {
                 EquivalentsCard(
                   todayMinutes: (m['focusTodayMin'] as int?) ?? 0,
                   weekMinutes:  (m['focusWeekMin']  as int?) ?? 0,
-                  monthMinutes: null, // 如需本月/累计可在 DAO 接口补充后填入
-                  allMinutes:   null,
+                  monthMinutes: (m['focusMonthMin'] as int?) ?? 0,
+                  allMinutes:   (m['focusAllMin']   as int?) ?? 0,
                   title: '把专注时间换算成…',
                 ),
                 const SizedBox(height: 12),
+                
 
                 // 近 7 天专注分钟柱状图
                 Card(

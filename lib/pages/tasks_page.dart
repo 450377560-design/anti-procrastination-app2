@@ -369,53 +369,63 @@ class _TasksPageState extends State<TasksPage> {
   }
 
   Future<void> _exportDialog() async {
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (c) => SimpleDialog(
-        title: const Text('导出已完成任务'),
-        children: const [
-          SimpleDialogOption(child: Text('近 7 天'), value: '7'),
-          SimpleDialogOption(child: Text('近 30 天'), value: '30'),
-          SimpleDialogOption(child: Text('本月'), value: 'month'),
-        ],
-      ),
-    );
-    if (!mounted) return;
-    if (choice == null) return;
+  final choice = await showDialog<String>(
+    context: context,
+    builder: (c) => SimpleDialog(
+      title: const Text('导出已完成任务'),
+      children: [
+        SimpleDialogOption(
+          child: const Text('近 7 天'),
+          onPressed: () => Navigator.pop(c, '7'),
+        ),
+        SimpleDialogOption(
+          child: const Text('近 30 天'),
+          onPressed: () => Navigator.pop(c, '30'),
+        ),
+        SimpleDialogOption(
+          child: const Text('本月'),
+          onPressed: () => Navigator.pop(c, 'month'),
+        ),
+      ],
+    ),
+  );
+  if (!mounted) return;
+  if (choice == null) return;
 
-    DateTime from, to;
-    final now = DateTime.now();
-    if (choice == 'month') {
-      from = DateTime(now.year, now.month, 1);
-      to = DateTime(now.year, now.month + 1, 0);
-    } else {
-      final days = int.parse(choice);
-      from = DateTime(now.year, now.month, now.day).subtract(Duration(days: days - 1));
-      to = DateTime(now.year, now.month, now.day);
-    }
-
-    final tasks = await TaskDao.completedInRange(from, to);
-    final buf = StringBuffer()
-      ..writeln('# 已完成任务导出')
-      ..writeln('时间范围：${DateFormat('yyyy-MM-dd').format(from)} ~ ${DateFormat('yyyy-MM-dd').format(to)}')
-      ..writeln()
-      ..writeln('| 日期 | 标题 | 项目 | 时段 | 笔记 |')
-      ..writeln('|---|---|---|---|---|');
-
-    for (final t in tasks) {
-      final slot =
-          (t.startTime != null || t.endTime != null) ? '${t.startTime ?? "--"}-${t.endTime ?? "--"}' : '';
-      final note = (t.note ?? '').replaceAll('\n', '<br/>');
-      buf.writeln('| ${t.date} | ${t.title} | ${t.project ?? ""} | $slot | ${note.isEmpty ? "" : note} |');
-    }
-
-    final dir = await getTemporaryDirectory();
-    final file = File(
-        '${dir.path}/tasks_export_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.md');
-    await file.writeAsString(buf.toString());
-
-    await Share.shareXFiles([XFile(file.path)], text: '完成任务导出');
+  DateTime from, to;
+  final now = DateTime.now();
+  if (choice == 'month') {
+    from = DateTime(now.year, now.month, 1);
+    to = DateTime(now.year, now.month + 1, 0);
+  } else {
+    final days = int.parse(choice);
+    from = DateTime(now.year, now.month, now.day).subtract(Duration(days: days - 1));
+    to = DateTime(now.year, now.month, now.day);
   }
+
+  final tasks = await TaskDao.completedInRange(from, to);
+  final buf = StringBuffer()
+    ..writeln('# 已完成任务导出')
+    ..writeln('时间范围：${DateFormat('yyyy-MM-dd').format(from)} ~ ${DateFormat('yyyy-MM-dd').format(to)}')
+    ..writeln()
+    ..writeln('| 日期 | 标题 | 项目 | 时段 | 笔记 |')
+    ..writeln('|---|---|---|---|---|');
+
+  for (final t in tasks) {
+    final slot = (t.startTime != null || t.endTime != null) ? '${t.startTime ?? "--"}-${t.endTime ?? "--"}' : '';
+    final note = (t.note ?? '').replaceAll('\n', '<br/>');
+    buf.writeln('| ${t.date} | ${t.title} | ${t.project ?? ""} | $slot | ${note.isEmpty ? "" : note} |');
+  }
+
+  final dir = await getTemporaryDirectory();
+  final file = File('${dir.path}/tasks_export_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.md');
+  await file.writeAsString(buf.toString());
+
+  await Share.shareXFiles([XFile(file.path)], text: '完成任务导出');
+}
+
+
+
 
   @override
   Widget build(BuildContext context) {

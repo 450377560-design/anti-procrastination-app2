@@ -1,3 +1,4 @@
+import 'package:sqflite/sqflite.dart';
 import '../models/task.dart';
 import 'app_db.dart';
 
@@ -7,44 +8,23 @@ class TaskDao {
     return db.insert('tasks', t.toMap());
   }
 
-  static Future<int> update(Task t) async {
+  static Future<void> update(Task t) async {
     final db = await AppDB.db;
-    return db.update('tasks', t.toMap(), where: 'id=?', whereArgs: [t.id]);
-  }
-
-  static Future<int> delete(int id) async {
-    final db = await AppDB.db;
-    return db.delete('tasks', where: 'id=?', whereArgs: [id]);
+    await db.update('tasks', t.toMap(), where: 'id=?', whereArgs: [t.id]);
   }
 
   static Future<void> deleteMany(List<int> ids) async {
     if (ids.isEmpty) return;
     final db = await AppDB.db;
-    await db.delete('tasks', where: 'id IN (${List.filled(ids.length, '?').join(',')})', whereArgs: ids);
+    final q = 'DELETE FROM tasks WHERE id IN (${List.filled(ids.length, '?').join(',')})';
+    await db.rawDelete(q, ids);
   }
 
   static Future<void> setDoneMany(List<int> ids, bool done) async {
     if (ids.isEmpty) return;
     final db = await AppDB.db;
-    await db.update('tasks', {'done': done ? 1 : 0},
-        where: 'id IN (${List.filled(ids.length, '?').join(',')})', whereArgs: ids);
-  }
-
-  static Future<List<Task>> listByDate(String date,
-      {String sort = 'priority', bool asc = true}) async {
-    final db = await AppDB.db;
-    final order = switch (sort) {
-      'priority' => 'priority',
-      'time' => "start_time IS NULL, start_time",
-      _ => 'id'
-    };
-    final rows = await db.query(
-      'tasks',
-      where: 'date=?',
-      whereArgs: [date],
-      orderBy: '$order ${asc ? 'ASC' : 'DESC'}',
-    );
-    return rows.map(Task.fromMap).toList();
+    final q = 'UPDATE tasks SET done=? WHERE id IN (${List.filled(ids.length, '?').join(',')})';
+    await db.rawUpdate(q, [done ? 1 : 0, ...ids]);
   }
 
   static Future<void> toggleDone(Task t) async {
@@ -52,57 +32,74 @@ class TaskDao {
     await db.update('tasks', {'done': t.done ? 0 : 1}, where: 'id=?', whereArgs: [t.id]);
   }
 
-  /// 最近 N 天（含今天）每天的完成率（0~100）
-  static Future<Map<String, int>> completionByDay(int days) async {
+  static Future<List<Task>> listByDate(String date, {String sort = 'priority'}) async {
     final db = await AppDB.db;
-    final res = <String, int>{};
-    final now = DateTime.now();
-    for (int i = days - 1; i >= 0; i--) {
-      final d = DateTime(now.year, now.month, now.day).subtract(Duration(days: i));
-      final dateStr =
-          "${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}";
-      final rows = await db.query('tasks', where: 'date=?', whereArgs: [dateStr]);
-      if (rows.isEmpty) {
-        res[dateStr] = 0;
-      } else {
-        final done = rows.where((r) => (r['done'] as int? ?? 0) == 1).length;
-        res[dateStr] = ((done * 100) / rows.length).round();
-      }
+    String orderBy = 'priority ASC, start_time ASC';
+    if (sort == 'time') orderBy = 'start_time ASC, priority ASC';
+    final rows = await db.query('tasks', where: 'date=?', whereArgs: [date], orderBy: orderBy);
+    return rows.map(Task.fromMap).toList();
     }
-    return res;
+
+  static Future<int> moveUnfinishedToTomorrow(String date) async {
+    final db = await AppDB.db;
+    final today = DateTime.parse(date);
+    final tomorrow = DateTime(today.year, today.month, today.day + 1);
+    return db.rawUpdate(
+      'UPDATE tasks SET date=? WHERE date=? AND done=0',
+      ['${tomorrow.year.toString().padLeft(4, '0')}-${tomorrow.month.toString().padLeft(2, '0')}-${tomorrow.day.toString().padLeft(2, '0')}', date],
+    );
   }
 
-  /// 日历汇总：返回 { 'YYYY-MM-DD': {'total': x, 'done': y}, ... }
-  static Future<Map<String, Map<String, int>>> countsByDateRange(
-      String startDate, String endDate) async {
+  static Future<Map<String, int>> completionByDay(int days) async {
     final db = await AppDB.db;
+    final start = DateTime.now().subtract(Duration(days: days - 1));
+    final startStr = '${start.year.toString().padLeft(4, '0')}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}';
     final rows = await db.rawQuery('''
-      SELECT date, COUNT(*) AS total, SUM(done) AS done
+      SELECT date,
+             SUM(CASE WHEN done=1 THEN 1 ELSE 0 END)*100/COUNT(*) AS rate
       FROM tasks
-      WHERE date>=? AND date<=?
+      WHERE date>=?
       GROUP BY date
-    ''', [startDate, endDate]);
-    final map = <String, Map<String, int>>{};
+      ORDER BY date
+    ''', [startStr]);
+    final map = <String, int>{};
     for (final r in rows) {
-      final date = r['date'] as String;
-      final total = (r['total'] as int?) ?? 0;
-      final done = (r['done'] as int?) ?? 0;
-      map[date] = {'total': total, 'done': done};
+      map[r['date'] as String] = (r['rate'] as num).round();
     }
     return map;
   }
 
-  /// 把某天“未完成”的任务整体移到明天，返回移动数量
-  static Future<int> moveUnfinishedToTomorrow(String date) async {
+  static Future<Map<String, Map<String, int>>> countsByDateRange(String startDate, String endDate) async {
     final db = await AppDB.db;
-    final d = DateTime.parse(date);
-    final tom = DateTime(d.year, d.month, d.day + 1);
-    final toStr = "${tom.year.toString().padLeft(4,'0')}-${tom.month.toString().padLeft(2,'0')}-${tom.day.toString().padLeft(2,'0')}";
-    return await db.update(
+    final rows = await db.rawQuery('''
+      SELECT date,
+             COUNT(*) AS total,
+             SUM(CASE WHEN done=1 THEN 1 ELSE 0 END) AS done
+      FROM tasks
+      WHERE date>=? AND date<=?
+      GROUP BY date
+      ORDER BY date
+    ''', [startDate, endDate]);
+    final map = <String, Map<String, int>>{};
+    for (final r in rows) {
+      map[r['date'] as String] = {
+        'total': (r['total'] as int?) ?? 0,
+        'done': (r['done'] as int?) ?? 0,
+      };
+    }
+    return map;
+  }
+
+  // 导出：在日期范围内所有“已完成”的任务
+  static Future<List<Task>> completedInRange(DateTime from, DateTime to) async {
+    final db = await AppDB.db;
+    String d(DateTime x) => '${x.year.toString().padLeft(4, '0')}-${x.month.toString().padLeft(2, '0')}-${x.day.toString().padLeft(2, '0')}';
+    final rows = await db.query(
       'tasks',
-      {'date': toStr},
-      where: 'date=? AND done=0',
-      whereArgs: [date],
+      where: 'date>=? AND date<=? AND done=1',
+      whereArgs: [d(from), d(to)],
+      orderBy: 'date ASC, priority ASC, start_time ASC',
     );
+    return rows.map(Task.fromMap).toList();
   }
 }

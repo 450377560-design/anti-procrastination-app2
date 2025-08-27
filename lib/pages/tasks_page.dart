@@ -7,6 +7,10 @@ import '../models/task.dart';
 import '../utils/color_hash.dart';
 import '../focus_page.dart';
 import '../notify/notification_service.dart';
+import 'task_note_page.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+import 'package:share_plus/share_plus.dart';
 
 class TasksPage extends StatefulWidget {
   const TasksPage({super.key});
@@ -17,13 +21,14 @@ class TasksPage extends StatefulWidget {
 class _TasksPageState extends State<TasksPage> {
   String _date = DateFormat('yyyy-MM-dd').format(DateTime.now());
   String _sort = 'priority';
-  final Set<int> _selected = {}; // 批量选择
+  final Set<int> _selected = {};
 
   @override
   void initState() {
     super.initState();
-    // 初始化通知（只需一次）
     NotificationService.init();
+    // 首次启动补充内置模板
+    TemplateDao.seedDefaults(_date);
   }
 
   String _fmt(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
@@ -55,7 +60,7 @@ class _TasksPageState extends State<TasksPage> {
     final minutes = t.expectedMinutes ?? 25;
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => FocusPage(minutes: minutes, task: t)));
     if (!mounted) return;
-    setState(() {}); // 回来后刷新统计/列表状态
+    setState(() {});
   }
 
   Future<void> _editTask([Task? t]) async {
@@ -100,6 +105,7 @@ class _TasksPageState extends State<TasksPage> {
         ctrlExp.text = (tmp.expectedMinutes ?? 25).toString();
         ctrlLabels.text = tmp.labels ?? '';
         ctrlProject.text = tmp.project ?? '';
+        ctrlEstPomos.text = (tmp.estimatePomos ?? '').toString();
         setState(() {});
       }
     }
@@ -110,6 +116,25 @@ class _TasksPageState extends State<TasksPage> {
         title: Text(t == null ? '新建任务' : '编辑任务'),
         content: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
+            // 快速模板按钮行
+            Wrap(
+              spacing: 8, runSpacing: 8,
+              children: [
+                OutlinedButton(onPressed: () {
+                  ctrlTitle.text = '深度工作块';
+                  ctrlExp.text = '50'; priority = 1; ctrlLabels.text = '专注'; ctrlProject.text = '工作'; ctrlEstPomos.text = '2';
+                }, child: const Text('深度工作 50')),
+                OutlinedButton(onPressed: () {
+                  ctrlTitle.text = '晨间规划';
+                  ctrlExp.text = '10'; priority = 2; ctrlLabels.text = '规划'; ctrlProject.text = '日常';
+                }, child: const Text('晨间规划 10')),
+                OutlinedButton(onPressed: () {
+                  ctrlTitle.text = '阅读';
+                  ctrlExp.text = '20'; priority = 2; ctrlLabels.text = '学习'; ctrlProject.text = '自我提升';
+                }, child: const Text('阅读 20')),
+              ],
+            ),
+            const SizedBox(height: 8),
             TextField(controller: ctrlTitle, decoration: const InputDecoration(labelText: '标题')),
             TextField(controller: ctrlDesc, decoration: const InputDecoration(labelText: '描述')),
             Row(children: [
@@ -139,7 +164,7 @@ class _TasksPageState extends State<TasksPage> {
             TextField(controller: ctrlEstPomos, decoration: const InputDecoration(labelText: '预计番茄数(可选)'), keyboardType: TextInputType.number),
             const SizedBox(height: 8),
             Row(children: [
-              OutlinedButton(onPressed: applyTemplate, child: const Text('应用模板')),
+              OutlinedButton(onPressed: applyTemplate, child: const Text('更多模板')),
               const SizedBox(width: 8),
               OutlinedButton(
                 onPressed: () async {
@@ -199,6 +224,7 @@ class _TasksPageState extends State<TasksPage> {
         done: t?.done ?? false,
         estimatePomos: int.tryParse(ctrlEstPomos.text),
         actualPomos: t?.actualPomos ?? 0,
+        note: t?.note,
       );
 
       if (t == null) {
@@ -218,7 +244,6 @@ class _TasksPageState extends State<TasksPage> {
 
   Future<void> _batchSetDone(bool done) async {
     await TaskDao.setDoneMany(_selected.toList(), done);
-    // 完成则取消提醒
     if (done) {
       for (final id in _selected) {
         await NotificationService.cancelTaskReminder(id);
@@ -248,6 +273,64 @@ class _TasksPageState extends State<TasksPage> {
     }
   }
 
+  Future<void> _openNote(Task t) async {
+    final updated = await Navigator.of(context).push<String?>(
+      MaterialPageRoute(builder: (_) => TaskNotePage(task: t)),
+    );
+    if (updated != null) {
+      t.note = updated;
+      await TaskDao.update(t);
+      if (!mounted) return;
+      setState(() {});
+    }
+  }
+
+  Future<void> _exportDialog() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        title: const Text('导出已完成任务'),
+        children: [
+          SimpleDialogOption(onPressed: () => Navigator.pop(c, '7'), child: const Text('近 7 天')),
+          SimpleDialogOption(onPressed: () => Navigator.pop(c, '30'), child: const Text('近 30 天')),
+          SimpleDialogOption(onPressed: () => Navigator.pop(c, 'month'), child: const Text('本月')),
+        ],
+      ),
+    );
+    if (choice == null) return;
+
+    DateTime from, to;
+    final now = DateTime.now();
+    if (choice == 'month') {
+      from = DateTime(now.year, now.month, 1);
+      to = DateTime(now.year, now.month + 1, 0);
+    } else {
+      final days = int.parse(choice);
+      from = DateTime(now.year, now.month, now.day).subtract(Duration(days: days - 1));
+      to = DateTime(now.year, now.month, now.day);
+    }
+
+    final tasks = await TaskDao.completedInRange(from, to);
+    final buf = StringBuffer()
+      ..writeln('# 已完成任务导出')
+      ..writeln('时间范围：${DateFormat('yyyy-MM-dd').format(from)} ~ ${DateFormat('yyyy-MM-dd').format(to)}')
+      ..writeln()
+      ..writeln('| 日期 | 标题 | 项目 | 时段 | 笔记 |')
+      ..writeln('|---|---|---|---|---|');
+
+    for (final t in tasks) {
+      final slot = (t.startTime != null || t.endTime != null) ? '${t.startTime ?? "--"}-${t.endTime ?? "--"}' : '';
+      final note = (t.note ?? '').replaceAll('\n', '<br/>');
+      buf.writeln('| ${t.date} | ${t.title} | ${t.project ?? ""} | $slot | ${note.isEmpty ? "" : note} |');
+    }
+
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/tasks_export_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.md');
+    await file.writeAsString(buf.toString());
+
+    await Share.shareXFiles([XFile(file.path)], text: '完成任务导出');
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder(
@@ -255,18 +338,16 @@ class _TasksPageState extends State<TasksPage> {
       builder: (context, snap) {
         final list = snap.data ?? <Task>[];
         final groups = groupBy(list, (Task t) => (t.project?.isNotEmpty == true) ? t.project! : '未分组');
-        final titleDate = DateTime.tryParse(_date) ?? DateTime.now();
-        final titleStr = DateFormat('yyyy-MM-dd (EEE)', 'zh_CN').format(titleDate);
+        final d = DateTime.tryParse(_date) ?? DateTime.now();
+        final dayStr = DateFormat('yyyy-MM-dd (EEE)', 'zh_CN').format(d);
 
         return Scaffold(
           appBar: AppBar(
-            title: Text(_selected.isEmpty ? '任务清单 · $titleStr' : '已选择 ${_selected.length} 项'),
+            // 标题只写“任务清单”，避免截断
+            title: const FittedBox(fit: BoxFit.scaleDown, child: Text('任务清单')),
             actions: _selected.isEmpty
                 ? [
-                    IconButton(onPressed: () => _shiftDay(-1), icon: const Icon(Icons.chevron_left), tooltip: '前一天'),
-                    IconButton(onPressed: _pickDate, icon: const Icon(Icons.event), tooltip: '选择日期'),
-                    IconButton(onPressed: () => _shiftDay(1), icon: const Icon(Icons.chevron_right), tooltip: '后一天'),
-                    IconButton(onPressed: _moveToTomorrow, icon: const Icon(Icons.redo), tooltip: '未完成移到明天'),
+                    IconButton(onPressed: _exportDialog, icon: const Icon(Icons.ios_share), tooltip: '导出已完成任务'),
                     PopupMenuButton<String>(
                       onSelected: (v) => setState(() => _sort = v),
                       itemBuilder: (_) => const [
@@ -285,21 +366,38 @@ class _TasksPageState extends State<TasksPage> {
               ? FloatingActionButton(onPressed: () => _editTask(), child: const Icon(Icons.add))
               : null,
           body: ListView(
-            children: groups.entries.map((e) {
-              final title = e.key;
-              final items = e.value;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  ),
-                  ...items.map(_buildTile),
-                  const Divider(height: 24),
-                ],
-              );
-            }).toList(),
+            children: [
+              // 顶部日期导航行（挪出 AppBar，避免标题被挤）
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                child: Row(
+                  children: [
+                    IconButton(onPressed: () => _shiftDay(-1), icon: const Icon(Icons.chevron_left)),
+                    Text(dayStr, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    IconButton(onPressed: _pickDate, icon: const Icon(Icons.event)),
+                    IconButton(onPressed: () => _shiftDay(1), icon: const Icon(Icons.chevron_right)),
+                    const Spacer(),
+                    TextButton.icon(onPressed: _moveToTomorrow, icon: const Icon(Icons.redo), label: const Text('未完成移到明天')),
+                  ],
+                ),
+              ),
+              // 各分组
+              ...groups.entries.map((e) {
+                final title = e.key;
+                final items = e.value;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    ),
+                    ...items.map(_buildTile),
+                    const Divider(height: 24),
+                  ],
+                );
+              }).toList(),
+            ],
           ),
         );
       },
@@ -378,10 +476,12 @@ class _TasksPageState extends State<TasksPage> {
               ],
             ),
           ),
-          trailing: IconButton(
-            icon: const Icon(Icons.play_arrow),
-            tooltip: '现在去完成任务',
-            onPressed: () => _startTaskFocus(t),
+          trailing: Wrap(
+            spacing: 4,
+            children: [
+              IconButton(icon: const Icon(Icons.note_alt_outlined), tooltip: '笔记', onPressed: () => _openNote(t)),
+              IconButton(icon: const Icon(Icons.play_arrow), tooltip: '现在去完成任务', onPressed: () => _startTaskFocus(t)),
+            ],
           ),
         ),
       ),

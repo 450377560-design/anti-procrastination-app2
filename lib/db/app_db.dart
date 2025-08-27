@@ -7,7 +7,8 @@ class AppDB {
   static Future<Database> get db async {
     if (_db != null) return _db!;
     final path = p.join(await getDatabasesPath(), 'anti_procrastination_app2.db');
-    _db = await openDatabase(path, version: 2, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    // 升级到 v3：focus_sessions 增加 rest_seconds；tasks 增加 note
+    _db = await openDatabase(path, version: 3, onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _db!;
   }
 
@@ -26,7 +27,8 @@ class AppDB {
         date TEXT NOT NULL,
         done INTEGER NOT NULL DEFAULT 0,
         estimate_pomos INTEGER,
-        actual_pomos INTEGER NOT NULL DEFAULT 0
+        actual_pomos INTEGER NOT NULL DEFAULT 0,
+        note TEXT
       );
     ''');
 
@@ -46,7 +48,8 @@ class AppDB {
         planned_minutes INTEGER NOT NULL,
         completed INTEGER NOT NULL DEFAULT 0,
         task_id INTEGER,
-        goal_text TEXT
+        goal_text TEXT,
+        rest_seconds INTEGER NOT NULL DEFAULT 0
       );
     ''');
 
@@ -63,8 +66,10 @@ class AppDB {
   static Future _onUpgrade(Database d, int oldV, int newV) async {
     await _safeAddColumn(d, 'focus_sessions', 'task_id', 'INTEGER');
     await _safeAddColumn(d, 'focus_sessions', 'goal_text', 'TEXT');
+    await _safeAddColumn(d, 'focus_sessions', 'rest_seconds', 'INTEGER NOT NULL DEFAULT 0');
     await _safeAddColumn(d, 'tasks', 'estimate_pomos', 'INTEGER');
     await _safeAddColumn(d, 'tasks', 'actual_pomos', 'INTEGER NOT NULL DEFAULT 0');
+    await _safeAddColumn(d, 'tasks', 'note', 'TEXT');
   }
 
   static Future _safeAddColumn(Database d, String table, String col, String def) async {

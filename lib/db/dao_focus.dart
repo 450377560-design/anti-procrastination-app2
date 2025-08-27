@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:sqflite/sqflite.dart';
-import 'app_db.dart';
+import 'package:anti_procrastination_app2/db/app_db.dart';
 
 /// 说明：
 /// - startSession 改为仅命名参数；请把调用处改为命名方式（见下文 B）
